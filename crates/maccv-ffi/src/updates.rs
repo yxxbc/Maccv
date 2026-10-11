@@ -76,7 +76,7 @@ pub extern "C" fn maccv_secure_input_open_settings() -> MaccvError {
 /// to whichever app has focus.
 ///
 /// Requires the Accessibility permission; returns
-/// [`MaccvError::MaccvErrorAccessDenied`] without it.
+/// [`MaccvError::AccessDenied`] without it.
 ///
 /// `text` is **not** NUL-terminated and `len` bytes are read, so the payload may
 /// contain NULs. `per_key_delay_us` is the pause between keystrokes — pass 0 for
