@@ -94,21 +94,26 @@ of truth — edit it rather than the `.xcodeproj`, which is not committed.
 A pre-build phase compiles the Rust engine and links it in, so an Xcode build is
 the only step you need.
 
-### Verifying the install
+### Verifying a build
 
 Every layer can check itself:
 
 ```bash
 cargo test                                  # Rust: 37 tests, incl. live pasteboard round trips
-cargo clippy --workspace --all-targets      # lints
+cargo clippy --workspace --all-targets      # lints, warnings denied
 xcodebuild -scheme MacCV build              # Swift ↔ C ABI ↔ Rust
-```
 
-The compiled app also self-tests the full stack:
-
-```bash
+# The compiled app also exercises the whole stack, end to end:
 "$BUILD_DIR/MacCV.app/Contents/MacOS/MacCV" --self-test
 ```
+
+That self-test runs against a **process-private** pasteboard, so it never reads or
+clobbers your real clipboard, and CI does not depend on whatever happens to be
+copied on the runner.
+
+`Scripts/publish.sh` will create the GitHub repository, set its description and
+topics, and push — kept as a script you run deliberately, because publishing is an
+outward-facing action rather than a build step.
 
 ## Project layout
 
@@ -117,6 +122,8 @@ crates/maccv-core/       Rust clipboard engine (the interesting part)
 crates/maccv-ffi/        C ABI bridge; also generates include/maccv.h
 apps/mac/                SwiftUI app; project.yml is the project source of truth
 Scripts/build-rust.sh    Builds + lipos the engine, called by Xcode and CI
+Scripts/changelog-notes.sh  Extracts release notes from CHANGELOG.md
+Scripts/publish.sh       Creates and configures the GitHub repository
 assets/                  Logo and social preview (SVG + rendered PNG)
 ```
 
