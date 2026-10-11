@@ -150,6 +150,22 @@ jobs:
           print("en and zh pages are structurally identical")
           PY
 
+      - name: Confirm Pages is enabled
+        # This action cannot enable Pages itself; it fails with "Get Pages site
+        # failed" when the repository has never had it switched on. Making that
+        # explicit turns an opaque API error into an instruction.
+        run: |
+          set -euo pipefail
+          if ! gh api "repos/${{ github.repository }}/pages" >/dev/null 2>&1; then
+            echo "::error::GitHub Pages is not enabled for this repository."
+            echo "Enable it once, choosing 'GitHub Actions' as the source:"
+            echo "  gh api --method POST repos/${{ github.repository }}/pages -f build_type=workflow"
+            echo "or in the web UI: Settings → Pages → Build and deployment → Source: GitHub Actions"
+            exit 1
+          fi
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
       - uses: actions/configure-pages@v5
 
       - uses: actions/upload-pages-artifact@v4
