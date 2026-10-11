@@ -1,0 +1,8 @@
+blank_issues_enabled: false
+contact_links:
+  - name: Question or general discussion
+    url: https://github.com/yxxbc/Maccv/discussions
+    about: For questions that are not bugs or concrete feature requests.
+  - name: Security issue
+    url: https://github.com/yxxbc/Maccv/security/advisories/new
+    about: Report a vulnerability privately. Do not open a public issue.

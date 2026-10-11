@@ -1,0 +1,159 @@
+name: Release
+
+on:
+  push:
+    tags:
+      - "v*"
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: "Existing tag to publish (e.g. v0.1.0)"
+        required: true
+        type: string
+
+permissions:
+  contents: write
+
+env:
+  CARGO_TERM_COLOR: always
+
+jobs:
+  release:
+    name: Publish release
+    runs-on: xcode-27
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          # The notes come from CHANGELOG.md, so the working tree is enough.
+          fetch-depth: 1
+
+      - name: Resolve the version being released
+        id: version
+        run: |
+          set -euo pipefail
+          if [[ "${{ github.event_name }}" == "workflow_dispatch" ]]; then
+            TAG="${{ inputs.tag }}"
+          else
+            TAG="${GITHUB_REF_NAME}"
+          fi
+          VERSION="${TAG#v}"
+          {
+            echo "tag=$TAG"
+            echo "version=$VERSION"
+          } >> "$GITHUB_OUTPUT"
+          echo "Releasing $TAG (version $VERSION)"
+
+      - name: Fail early if the changelog has nothing for this version
+        # A release with no notes is a release nobody can read. Stop before the
+        # expensive build so the fix is a changelog edit, not a re-run.
+        run: ./Scripts/changelog-notes.sh --check "${{ steps.version.outputs.version }}"
+
+      - name: Install Rust toolchain
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: aarch64-apple-darwin,x86_64-apple-darwin
+
+      - name: Install XcodeGen
+        run: brew install xcodegen
+
+      - name: Cache cargo artifacts
+        uses: Swatinem/rust-cache@v2
+        with:
+          key: release
+
+      - name: Confirm the crates carry the released version
+        # Guards against tagging without bumping Cargo.toml.
+        run: |
+          set -euo pipefail
+          MANIFEST_VERSION=$(cargo metadata --no-deps --format-version 1 \
+            | python3 -c 'import json,sys; print(json.load(sys.stdin)["packages"][0]["version"])')
+          if [[ "$MANIFEST_VERSION" != "${{ steps.version.outputs.version }}" ]]; then
+            echo "::error::Cargo.toml says $MANIFEST_VERSION but the tag says ${{ steps.version.outputs.version }}. Bump the version and re-tag."
+            exit 1
+          fi
+          echo "Cargo.toml matches the tag ($MANIFEST_VERSION)."
+
+      - name: Test the engine
+        run: cargo test --workspace
+
+      - name: Generate the Xcode project
+        working-directory: apps/mac
+        run: xcodegen generate
+
+      - name: Build a universal app
+        # A release should run on both Apple silicon and Intel Macs.
+        working-directory: apps/mac
+        env:
+          MACCV_ARCH: universal
+        run: |
+          set -o pipefail
+          xcodebuild -project MacCV.xcodeproj \
+            -scheme MacCV \
+            -configuration Release \
+            -destination 'platform=macOS' \
+            ARCHS="arm64 x86_64" \
+            ONLY_ACTIVE_ARCH=NO \
+            build
+
+      - name: Package the app
+        id: package
+        run: |
+          set -euo pipefail
+          APP=$(find ~/Library/Developer/Xcode/DerivedData -path '*Release/MacCV.app' -maxdepth 6 | head -1)
+          if [[ -z "$APP" ]]; then
+            echo "::error::MacCV.app was not produced"
+            exit 1
+          fi
+
+          # Verify the universal build actually carries both slices.
+          lipo -info "$APP/Contents/MacOS/MacCV"
+
+          ARCHIVE="MacCV-${{ steps.version.outputs.version }}.zip"
+          # ditto preserves the bundle structure and resource forks, unlike zip.
+          ditto -c -k --keepParent "$APP" "$ARCHIVE"
+
+          SHA=$(shasum -a 256 "$ARCHIVE" | awk '{print $1}')
+          SIZE=$(du -h "$ARCHIVE" | cut -f1)
+          {
+            echo "archive=$ARCHIVE"
+            echo "sha256=$SHA"
+            echo "size=$SIZE"
+          } >> "$GITHUB_OUTPUT"
+          echo "Packaged $ARCHIVE ($SHA)"
+
+      - name: Generate the release notes from the changelog
+        run: |
+          set -euo pipefail
+          {
+            echo "## Install"
+            echo
+            echo "1. Download \`${{ steps.package.outputs.archive }}\` below."
+            echo "2. Unzip it and move **MacCV.app** to \`/Applications\`."
+            echo "3. Launch it. MacCV lives in the menu bar — it has no Dock icon."
+            echo
+            echo "macOS will ask for permission the first time MacCV reads your"
+            echo "clipboard. That is macOS 27's pasteboard protection; allow it to"
+            echo "use history, or deny it to keep MacCV read-only."
+            echo
+            echo "> Universal binary (Apple silicon + Intel). Requires macOS 27 or later."
+            echo
+            echo "**SHA-256** \`${{ steps.package.outputs.sha256 }}\`"
+            echo
+            echo "---"
+            echo
+            ./Scripts/changelog-notes.sh "${{ steps.version.outputs.version }}"
+          } > RELEASE_NOTES.md
+          echo "--- notes preview ---"
+          head -30 RELEASE_NOTES.md
+
+      - name: Publish the release
+        uses: softprops/action-gh-release@v3
+        with:
+          tag_name: ${{ steps.version.outputs.tag }}
+          name: MacCV ${{ steps.version.outputs.version }}
+          body_path: RELEASE_NOTES.md
+          files: ${{ steps.package.outputs.archive }}
+          draft: false
+          # Mark 0.x and pre-release tags as prereleases automatically.
+          prerelease: ${{ contains(steps.version.outputs.version, '-') || startsWith(steps.version.outputs.version, '0.') }}
+          fail_on_unmatched_files: true

@@ -1,0 +1,153 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+# A new push to the same branch makes the previous run obsolete.
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  CARGO_TERM_COLOR: always
+  # Fail on warnings rather than letting them accumulate.
+  RUSTFLAGS: -D warnings
+
+jobs:
+  # ---------------------------------------------------------------------------
+  # Rust engine: formatting, lints, tests, docs.
+  # ---------------------------------------------------------------------------
+  rust:
+    name: Rust engine
+    runs-on: xcode-27
+    steps:
+      - uses: actions/checkout@v7
+
+      - name: Install Rust toolchain
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          components: rustfmt, clippy
+
+      - name: Cache cargo artifacts
+        uses: Swatinem/rust-cache@v2
+        with:
+          # Separate caches per job, since each builds different things.
+          key: rust-engine
+
+      - name: Check formatting
+        run: cargo fmt --all --check
+
+      - name: Clippy
+        run: cargo clippy --workspace --all-targets -- -D warnings
+
+      - name: Run tests
+        # These touch a real NSPasteboard via a process-private pasteboard, so they
+        # need a logged-in session. They do not read or write the general clipboard.
+        run: cargo test --workspace --all-targets
+
+      - name: Build documentation
+        run: cargo doc --workspace --no-deps
+        env:
+          RUSTDOCFLAGS: -D warnings
+
+  # ---------------------------------------------------------------------------
+  # The C ABI: the header must be current, and the smoke test must pass.
+  # ---------------------------------------------------------------------------
+  ffi:
+    name: C ABI
+    runs-on: xcode-27
+    steps:
+      - uses: actions/checkout@v7
+
+      - name: Install Rust toolchain
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Cache cargo artifacts
+        uses: Swatinem/rust-cache@v2
+        with:
+          key: ffi
+
+      - name: Build the static library
+        run: cargo build --release -p maccv-ffi
+
+      - name: Verify the committed header is up to date
+        # cbindgen regenerates include/maccv.h during the build. If that changed the
+        # file, the committed copy was stale — fail so it gets regenerated and
+        # committed rather than silently drifting.
+        run: |
+          if ! git diff --exit-code -- crates/maccv-ffi/include/maccv.h; then
+            echo "::error::crates/maccv-ffi/include/maccv.h is out of date. Run 'cargo build -p maccv-ffi' and commit the result."
+            exit 1
+          fi
+          echo "Header is current."
+
+      - name: Compile the C smoke test against the static library
+        run: |
+          clang -std=c11 -Wall -Wextra -Werror -O1 \
+            -I crates/maccv-ffi/include \
+            crates/maccv-ffi/tests/smoke.c \
+            -o "$RUNNER_TEMP/maccv_smoke" \
+            -L target/release -lmaccv_ffi \
+            -framework AppKit -framework Foundation
+
+      - name: Run the C smoke test
+        run: '"$RUNNER_TEMP/maccv_smoke"'
+
+  # ---------------------------------------------------------------------------
+  # The SwiftUI app: builds in both configurations, and its engine handshake works.
+  # ---------------------------------------------------------------------------
+  app:
+    name: MacCV app
+    runs-on: xcode-27
+    steps:
+      - uses: actions/checkout@v7
+
+      - name: Install Rust toolchain
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Install XcodeGen
+        run: brew install xcodegen
+
+      - name: Cache cargo artifacts
+        uses: Swatinem/rust-cache@v2
+        with:
+          key: app
+
+      - name: Generate the Xcode project
+        working-directory: apps/mac
+        run: xcodegen generate
+
+      - name: Build (Debug)
+        working-directory: apps/mac
+        run: |
+          set -o pipefail
+          xcodebuild -project MacCV.xcodeproj \
+            -scheme MacCV \
+            -configuration Debug \
+            -destination 'platform=macOS' \
+            build
+
+      - name: Build (Release)
+        working-directory: apps/mac
+        run: |
+          set -o pipefail
+          xcodebuild -project MacCV.xcodeproj \
+            -scheme MacCV \
+            -configuration Release \
+            -destination 'platform=macOS' \
+            build
+
+      - name: Report bundle size
+        run: |
+          APP=$(find ~/Library/Developer/Xcode/DerivedData -path '*Release/MacCV.app' -maxdepth 6 | head -1)
+          echo "Release bundle: $(du -sh "$APP" | cut -f1)"
+          echo "### Release bundle: $(du -sh "$APP" | cut -f1)" >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Run the app's self-test
+        # Proves Swift → C ABI → Rust → NSPasteboard works, not merely that it compiles.
+        run: |
+          APP=$(find ~/Library/Developer/Xcode/DerivedData -path '*Release/MacCV.app' -maxdepth 6 | head -1)
+          "$APP/Contents/MacOS/MacCV" --self-test

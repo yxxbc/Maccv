@@ -1,0 +1,89 @@
+name: Bug report
+description: Something behaves differently from what you expected
+title: "[Bug] "
+labels: ["bug", "needs-triage"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Thanks for the report. Clipboard bugs are usually about a specific app's
+        output, so the reproduction details below matter more than usual.
+
+  - type: input
+    id: macos-version
+    attributes:
+      label: macOS version
+      description: "From  → About This Mac, or the output of `sw_vers -productVersion`."
+      placeholder: "27.0.1"
+    validations:
+      required: true
+
+  - type: input
+    id: maccv-version
+    attributes:
+      label: MacCV version
+      description: Shown at the bottom of the menu-bar panel, or the release you downloaded.
+      placeholder: "0.1.0"
+    validations:
+      required: true
+
+  - type: textarea
+    id: what-happened
+    attributes:
+      label: What happened
+      description: What MacCV showed, and what you expected instead.
+    validations:
+      required: true
+
+  - type: textarea
+    id: reproduction
+    attributes:
+      label: Steps to reproduce
+      description: |
+        Which app did the content come from, what did you copy, and what did you do
+        next? "Copied a table from Numbers, opened the panel, the preview showed
+        plain text with no tab separators" is the level of detail that helps.
+      placeholder: |
+        1. Copied a formatted paragraph from Safari
+        2. Opened the MacCV panel
+        3. Preview showed …
+        4. Double-clicked to restore
+        5. Pasting into Pages gave …
+    validations:
+      required: true
+
+  - type: input
+    id: source-app
+    attributes:
+      label: Source application
+      description: Where the copied content came from, and its version if you know it.
+      placeholder: "Safari 27.0"
+    validations:
+      required: false
+
+  - type: dropdown
+    id: access-policy
+    attributes:
+      label: Pasteboard access policy
+      description: |
+        macOS 27 asks for permission the first time an app reads the clipboard.
+        Check  → System Settings → Privacy & Security → Pasteboard.
+      options:
+        - Not listed
+        - Always allow
+        - Ask
+        - Never allow
+        - Not sure
+    validations:
+      required: true
+
+  - type: textarea
+    id: logs
+    attributes:
+      label: Relevant output
+      description: |
+        If you built from source, the engine's own checks are a useful signal:
+        `cargo test` and `MacCV.app/Contents/MacOS/MacCV --self-test`.
+      render: shell
+    validations:
+      required: false

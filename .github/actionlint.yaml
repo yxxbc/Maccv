@@ -1,0 +1,10 @@
+# actionlint configuration.
+#
+# https://github.com/rhysd/actionlint/blob/main/docs/config.md
+
+self-hosted-runner:
+  # The Xcode 27 image is published as a preview and ships macOS 27.0.1 with the
+  # macOS 27.0 SDK, which this project requires. actionlint's built-in label list
+  # predates it, so it is declared here rather than treated as an unknown label.
+  labels:
+    - xcode-27

@@ -1,0 +1,73 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!--
+  MacCV mark.
+
+  Concept: a clipboard (what the app holds) whose three entries are rendered as
+  speed lines, with a bolt badge (why it exists — it is fast). The clipboard
+  silhouette carries the identity at 16 px, where the badge and bars drop away.
+
+  Geometry follows Apple's macOS icon template: a 1024 canvas, the squircle
+  inset to 824 with a 185 corner radius, so the icon sits correctly next to
+  system icons in the Dock and Finder.
+-->
+<svg xmlns="http://www.w3.org/2000/svg" width="1024" height="1024" viewBox="0 0 1024 1024">
+  <defs>
+    <!-- Body gradient: deep indigo to violet, so the white glyph reads crisply. -->
+    <linearGradient id="body" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0" stop-color="#4C3DDB"/>
+      <stop offset="0.55" stop-color="#6D4AE8"/>
+      <stop offset="1" stop-color="#8B5CF6"/>
+    </linearGradient>
+
+    <!-- Accent for the bolt badge. -->
+    <linearGradient id="accent" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#5EEAD4"/>
+      <stop offset="1" stop-color="#22D3EE"/>
+    </linearGradient>
+
+    <!-- Inner highlight along the top edge, to give the tile some depth. -->
+    <linearGradient id="sheen" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#FFFFFF" stop-opacity="0.28"/>
+      <stop offset="1" stop-color="#FFFFFF" stop-opacity="0"/>
+    </linearGradient>
+
+    <filter id="shadow" x="-25%" y="-25%" width="150%" height="150%">
+      <feDropShadow dx="0" dy="10" stdDeviation="18" flood-color="#1E1B4B" flood-opacity="0.28"/>
+    </filter>
+
+    <clipPath id="tile">
+      <rect x="100" y="100" width="824" height="824" rx="185"/>
+    </clipPath>
+  </defs>
+
+  <!-- Drop shadow on its own so the squircle edges stay sharp. -->
+  <rect x="100" y="100" width="824" height="824" rx="185" fill="#4C3DDB" filter="url(#shadow)"/>
+
+  <g clip-path="url(#tile)">
+    <rect x="100" y="100" width="824" height="824" fill="url(#body)"/>
+    <!-- Top sheen -->
+    <rect x="100" y="100" width="824" height="380" fill="url(#sheen)"/>
+  </g>
+
+  <!-- Clipboard body -->
+  <g>
+    <rect x="312" y="272" width="400" height="512" rx="56" fill="#FFFFFF"/>
+    <!-- Clip at the top of the board -->
+    <rect x="436" y="228" width="152" height="88" rx="34" fill="#FFFFFF"/>
+    <rect x="462" y="248" width="100" height="48" rx="20" fill="#6D4AE8"/>
+  </g>
+
+  <!-- Three entries, rendered as decreasing-speed bars -->
+  <g fill="#6D4AE8">
+    <rect x="376" y="404" width="272" height="40" rx="20"/>
+    <rect x="376" y="492" width="208" height="40" rx="20" opacity="0.72"/>
+    <rect x="376" y="580" width="140" height="40" rx="20" opacity="0.44"/>
+  </g>
+
+  <!-- Bolt badge: the speed story, in one shape -->
+  <g>
+    <circle cx="704" cy="700" r="152" fill="#FFFFFF"/>
+    <path d="M726 592 L626 736 L694 736 L666 826 L772 678 L702 678 Z"
+          fill="url(#accent)"/>
+  </g>
+</svg>

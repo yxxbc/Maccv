@@ -1,0 +1,36 @@
+[workspace]
+resolver = "3"
+members = ["crates/maccv-core", "crates/maccv-ffi"]
+
+[workspace.package]
+version = "0.1.0"
+edition = "2024"
+rust-version = "1.85"
+license = "Apache-2.0"
+repository = "https://github.com/yxxbc/Maccv"
+homepage = "https://github.com/yxxbc/Maccv"
+authors = ["yxxbc <xynrin@outlook.com>"]
+keywords = ["clipboard", "pasteboard", "macos", "nspasteboard"]
+categories = ["os::macos-apis", "gui"]
+
+[workspace.dependencies]
+maccv-core = { path = "crates/maccv-core", version = "0.1.0" }
+objc2 = "0.6"
+objc2-foundation = { version = "0.3", default-features = false }
+objc2-app-kit = { version = "0.3", default-features = false }
+bitflags = "2"
+
+# Development profile: keep debug builds fast to compile but still debuggable.
+[profile.dev]
+opt-level = 1
+
+[profile.dev.package."*"]
+opt-level = 3
+
+# Release profile tuned for a snappy, small clipboard daemon.
+[profile.release]
+opt-level = 3
+lto = "fat"
+codegen-units = 1
+panic = "abort"
+strip = "symbols"

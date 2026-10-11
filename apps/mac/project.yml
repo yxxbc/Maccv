@@ -1,0 +1,95 @@
+name: MacCV
+options:
+  bundleIdPrefix: io.github.yxxbc
+  deploymentTarget:
+    macOS: "27.0"
+  createIntermediateGroups: true
+  generateEmptyDirectories: true
+  groupSortPosition: top
+
+settings:
+  base:
+    SWIFT_VERSION: "6.0"
+    SWIFT_STRICT_CONCURRENCY: complete
+    MACOSX_DEPLOYMENT_TARGET: "27.0"
+    ENABLE_HARDENED_RUNTIME: YES
+    # The engine is a static library; no dynamic library search paths are needed.
+    DEAD_CODE_STRIPPING: YES
+    # Reproducible-ish builds: never embed the build path in the binary.
+    GCC_PREFIX_HEADER: ""
+    # The Xcode project lives in apps/mac; everything shared is two levels up.
+    MACCV_ROOT: $(SRCROOT)/../..
+  configs:
+    Debug:
+      MACCV_PROFILE: debug
+      SWIFT_OPTIMIZATION_LEVEL: "-Onone"
+      # Rust is the expensive part; keep its artifacts out of Xcode's cleaning.
+      CARGO_TARGET_DIR: $(MACCV_ROOT)/target
+    Release:
+      MACCV_PROFILE: release
+      SWIFT_OPTIMIZATION_LEVEL: "-O"
+      SWIFT_COMPILATION_MODE: wholemodule
+      CARGO_TARGET_DIR: $(MACCV_ROOT)/target
+
+targets:
+  MacCV:
+    type: application
+    platform: macOS
+    sources:
+      - path: Sources/MacCV
+      - path: Resources
+        buildPhase: resources
+    info:
+      path: MacCV-Info.plist
+      properties:
+        CFBundleName: MacCV
+        CFBundleDisplayName: MacCV
+        CFBundleShortVersionString: "0.1.0"
+        CFBundleVersion: "1"
+        CFBundlePackageType: APPL
+        LSMinimumSystemVersion: "27.0"
+        # A clipboard manager is a menu-bar accessory, never a Dock app.
+        LSUIElement: true
+        NSHumanReadableCopyright: "Copyright © 2026 yxxbc. Licensed under Apache-2.0."
+        # macOS 27 asks for explicit pasteboard access. MacCV reads the clipboard
+        # to build the history the user asked for; the system shows its own
+        # consent prompt and this string explains why.
+        NSPasteboardUsageDescription: "MacCV reads your clipboard so it can keep the history you asked for. Nothing leaves your Mac."
+        NSPrincipalClass: NSApplication
+    settings:
+      base:
+        PRODUCT_NAME: MacCV
+        PRODUCT_BUNDLE_IDENTIFIER: io.github.yxxbc.maccv
+        MARKETING_VERSION: "0.1.0"
+        CURRENT_PROJECT_VERSION: "1"
+        INFOPLIST_FILE: MacCV-Info.plist
+        # Link the Rust engine and the frameworks AppKit needs from Rust.
+        LIBRARY_SEARCH_PATHS:
+          - $(MACCV_ROOT)/target/maccv-apple
+          - $(MACCV_ROOT)/target
+        OTHER_LDFLAGS:
+          - -lmaccv_ffi
+          - -framework
+          - AppKit
+          - -framework
+          - Foundation
+          - -framework
+          - CoreFoundation
+          - -lc++
+        HEADER_SEARCH_PATHS:
+          - $(MACCV_ROOT)/crates/maccv-ffi/include
+          - $(MACCV_ROOT)/target/maccv-apple/include
+        # Nothing here should be sandboxed away from the pasteboard.
+        ENABLE_APP_SANDBOX: NO
+        CODE_SIGN_STYLE: Automatic
+        CODE_SIGN_IDENTITY: "-"
+        # The build phase below runs cargo; it must not race Swift compilation.
+        SWIFT_OBJC_BRIDGING_HEADER: Sources/MacCV/MacCV-Bridging-Header.h
+    preBuildScripts:
+      - name: Build Rust clipboard engine
+        basedOnDependencyAnalysis: false
+        script: |
+          set -euo pipefail
+          "$MACCV_ROOT/Scripts/build-rust.sh" --profile "$MACCV_PROFILE"
+        outputFiles:
+          - $(MACCV_ROOT)/target/maccv-apple/libmaccv_ffi.a

@@ -1,0 +1,48 @@
+[package]
+name = "maccv-core"
+description = "Fast, faithful macOS pasteboard (NSPasteboard) access for Rust."
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
+homepage.workspace = true
+authors.workspace = true
+keywords.workspace = true
+categories.workspace = true
+readme = "../../README.md"
+
+[dependencies]
+objc2 = { workspace = true }
+bitflags = { workspace = true }
+objc2-foundation = { workspace = true, features = [
+    "std",
+    "NSString",
+    "NSArray",
+    "NSData",
+    "NSDictionary",
+    "NSError",
+    "NSURL",
+    "NSSet",
+    "NSValue",
+    "NSGeometry",
+    "NSFileWrapper",
+    "NSRange",
+    "NSObject",
+    "NSCoder",
+    "NSKeyedArchiver",
+    "NSThread",
+    "NSEnumerator",
+] }
+objc2-app-kit = { workspace = true, features = [
+    "NSPasteboard",
+    "NSPasteboardItem",
+    "NSImage",
+    "NSImageRep",
+    "NSColor",
+    "NSColorSpace",
+    "NSBitmapImageRep",
+    "NSGraphics",
+    "NSResponder",
+    "objc2-core-foundation",
+] }

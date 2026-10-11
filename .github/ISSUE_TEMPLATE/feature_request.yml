@@ -1,0 +1,53 @@
+name: Feature request
+description: Suggest a capability MacCV should have
+title: "[Feature] "
+labels: ["enhancement", "needs-triage"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Before filing, it is worth checking the roadmap in the README — several
+        common requests are already planned there.
+
+  - type: textarea
+    id: problem
+    attributes:
+      label: The problem
+      description: |
+        What are you trying to do that MacCV makes difficult or impossible? Describe
+        the situation rather than the solution; it usually leads to a better design.
+      placeholder: |
+        I keep re-copying the same three snippets and would rather …
+    validations:
+      required: true
+
+  - type: textarea
+    id: proposal
+    attributes:
+      label: What you would like to happen
+      description: Your suggested approach, if you have one.
+    validations:
+      required: false
+
+  - type: textarea
+    id: alternatives
+    attributes:
+      label: Alternatives considered
+      description: Other approaches, or how you handle this today.
+    validations:
+      required: false
+
+  - type: dropdown
+    id: area
+    attributes:
+      label: Area
+      options:
+        - Clipboard capture and fidelity
+        - History and search
+        - Panel UI and interaction
+        - Keyboard shortcuts
+        - Performance
+        - Build, packaging, or CI
+        - Something else
+    validations:
+      required: true
