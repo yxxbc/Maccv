@@ -156,6 +156,9 @@ stage "no undeclared network access" \
 stage "clipboard content is never persisted" \
   python3 Scripts/checks/no_content_persistence.py
 
+stage "READMEs agree on the facts" \
+  python3 Scripts/checks/readme_parity.py
+
 stage "documented standards exist" \
   bash -c '
     set -e

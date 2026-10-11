@@ -1,277 +1,244 @@
 <div align="center">
 
-<img src="assets/logo.png" alt="MacCV" width="128" height="128">
+<img src="assets/logo.png" alt="MacCV" width="120" height="120">
 
 # MacCV
 
-**A fast, light, private macOS clipboard.**
+**Copy anything. Find it again. Paste it back exactly as it was.**
 
-A menu-bar clipboard manager with a Rust engine and a SwiftUI front end. It reads
-and writes the *native* pasteboard — not just text — and it can hand content to an
-app without the clipboard seeing it at all.
+A menu-bar clipboard manager for macOS that keeps every format a copy carried — not
+just the text — and can hand it to an app without the clipboard ever seeing it.
+
+<br>
+
+[![Download](https://img.shields.io/badge/Download-latest%20release-6D4AE8?style=for-the-badge&logo=apple&logoColor=white)](https://github.com/yxxbc/Maccv/releases/latest)
+&nbsp;
+[![Website](https://img.shields.io/badge/Website-yxxbc.github.io-22D3EE?style=for-the-badge&logo=safari&logoColor=white)](https://yxxbc.github.io/Maccv/)
+&nbsp;
+[![简体中文](https://img.shields.io/badge/简体中文-Read%20in%20Chinese-4C3DDB?style=for-the-badge)](README.zh-CN.md)
+
+<br>
 
 [![CI](https://github.com/yxxbc/Maccv/actions/workflows/ci.yml/badge.svg)](https://github.com/yxxbc/Maccv/actions/workflows/ci.yml)
-[![Release](https://img.shields.io/github/v/release/yxxbc/Maccv?include_prereleases&sort=semver)](https://yxxbc.github.io/Maccv/changelog/)
+[![Release](https://img.shields.io/github/v/release/yxxbc/Maccv?include_prereleases&sort=semver&color=6D4AE8)](https://github.com/yxxbc/Maccv/releases)
 [![License](https://img.shields.io/badge/license-Apache--2.0-blue.svg)](LICENSE)
-[![macOS](https://img.shields.io/badge/macOS-27%2B-black.svg)](#requirements)
-[![Rust](https://img.shields.io/badge/rust-1.85%2B-orange.svg)](https://www.rust-lang.org)
-
-[English](README.md) · [简体中文](README.zh-CN.md) · [Website](https://yxxbc.github.io/Maccv/)
+[![macOS](https://img.shields.io/badge/macOS-15%2B-black.svg)](#requirements)
+[![Universal](https://img.shields.io/badge/binary-Apple%20silicon%20%2B%20Intel-black.svg)](#download)
+[![Rust](https://img.shields.io/badge/engine-Rust-orange.svg)](https://www.rust-lang.org)
+[![Bundle](https://img.shields.io/badge/app-1.9%20MB-brightgreen.svg)](#light)
 
 </div>
 
----
+<br>
 
-## The three ideas
+<!--
+  PREVIEW PLACEHOLDER
 
-MacCV is built around three commitments. They are specific enough to be checked,
-and where macOS limits them, this README says so rather than implying otherwise.
+  A screencast belongs here: copying a rich paragraph, opening the panel, and
+  pasting it back still formatted. Keep it under ~4 MB and add it as
+  assets/preview.gif, then replace this block with:
 
-### 1. Fast
+    <div align="center">
+      <img src="assets/preview.gif" alt="Copying a formatted paragraph and pasting it back with its formatting intact" width="720">
+    </div>
 
-Speed is not a feature bolted on; it decided the architecture. The engine is Rust
-compiled into a **static library linked into the app**, so there is no IPC hop, no
-serialization step, and no helper process. A change is detected in **0.53 µs**,
-which is what makes polling viable — and polling is what lets MacCV avoid an event
-tap, and therefore avoid demanding Accessibility access just to notice a copy.
+  A still frame is a poor substitute for showing the panel open and content
+  landing in another app.
+-->
 
-Breakdown of what "fast" means in practice, asserted by tests rather than measured
-once by hand:
+<div align="center">
+  <img src="assets/preview-placeholder.png" alt="MacCV panel preview — a screencast goes here" width="720">
+  <br>
+  <sub><i>Preview coming soon — the menu-bar panel with live previews and search.</i></sub>
+</div>
 
-| Operation | Cost |
-|---|---|
-| Detect a change (`changeCount`) | **0.53 µs** |
-| Read plain text | **9.9 µs** |
-| Notice an external `pbcopy` | **116 µs** |
-| Write text | 215 µs — AppKit's own cost; the OS notifies every interested process |
+<br>
 
-### 2. Light
+## What it does
 
-An idle clipboard manager should be invisible. MacCV's watcher polls at a 400 µs
-interval right after a copy — imperceptible — and backs off geometrically to
-250 ms while nothing changes. No timer runs in the UI layer. History lives in
-memory, and the release app is **1.9 MB**.
+**Keeps every format.** Copy a table from Numbers and most managers give you
+tab-separated text. MacCV keeps the rich text, the HTML *and* the plain text, so it
+pastes correctly into whatever app you are in. Copy three files from Finder and you
+get three files back, not three lines of text.
 
-### 3. Private
+**Pastes without the clipboard.** Enable it, and MacCV types the content straight
+into the frontmost app as keystrokes. It never enters the shared clipboard, so no
+other application can read what you pasted. See [Security](#security) for why this
+is the only thing that actually delivers that.
 
-This is where the honest version matters, and where most clipboard managers
-overstate what they can do.
+**Hides what it should.** Card numbers, API keys, tokens and ID numbers are detected
+and masked when the entry is *stored*, not just when it is drawn. Entries a password
+manager marked as concealed are never recorded at all.
 
-**The uncomfortable fact:** once content is on the system pasteboard, *any*
-application on the Mac can read it. That is not a bug or a missing feature; it is
-how macOS is designed. There is no API to write to the pasteboard privately.
-`NSPasteboardContentsOptionsCurrentHostOnly` stops syncing to your other devices,
-not to other apps. There is no "concealed" or "transient" flag in AppKit — the
-`org.nspasteboard.ConcealedType` convention is honoured only voluntarily, and
-`NSPasteboardAccessBehavior` governs whether *this* process may read, never whether
-anyone else may.
+**Stays out of the way.** It notices a copy in about half a microsecond, so it does
+not need to watch your keystrokes — which means **no Accessibility permission just to
+run**. It sits in the menu bar and costs nothing while idle.
 
-So MacCV does the one thing that actually works: **it can paste without using the
-clipboard at all.**
+**Talks to you in your language.** English and 简体中文, following your system.
 
-With **Paste Without Clipboard** enabled, choosing it from an entry's context menu
-sends the text to the frontmost app as synthetic keystrokes via
-`CGEventKeyboardSetUnicodeString`. The content never enters a shared channel, so no
-other process *can* observe it. That is a real guarantee, not a policy.
+<br>
 
-Its costs are real too, so it is off by default and offered as a choice:
+## Download
 
-- It needs the **Accessibility permission**, because injecting events into another
-  app is precisely what that permission gates.
-- It is **slower** — events are delivered at typing pace.
-- It is **text only**. An image has no keystroke representation, so images still
-  take the clipboard path.
+| Your Mac | | |
+|---|---|---|
+| **Apple silicon** (M1, M2, M3, M4…) | [Download arm64](https://github.com/yxxbc/Maccv/releases/latest) | |
+| **Intel** | [Download x86_64](https://github.com/yxxbc/Maccv/releases/latest) | |
 
-Alongside that, the things that *are* fully within the app's control:
+Open the DMG and drag **MacCV** onto **Applications**. Not sure which you have?
+→  About This Mac. If it says *Chip: Apple M…* take the Apple silicon build.
 
-| Control | What it actually guarantees |
-|---|---|
-| History stays in the app container | Other applications cannot read your history. Only the pasteboard write is shared, never the log. |
-| Skip concealed entries | Entries a password manager marked `ConcealedType` are **never recorded** — honouring a stated intent, not guessing. |
-| Mask sensitive content | Detected card numbers, API keys, JWTs, private keys, credentialed URLs, emails and ID numbers are redacted **when recorded**, not just when drawn. |
-| Confirmation before replacing itself | A downloaded update is verified, then presented. MacCV never silently rewrites its own bundle. |
+Every release publishes a `SHA256SUMS` file, and the app verifies the digest and the
+code signature before it will install an update.
 
-**What MacCV does not claim:** it cannot stop another app from reading the
-clipboard. Nothing can. If you need that, use Paste Without Clipboard, or don't put
-the secret on the clipboard. The README says this plainly because a privacy claim
-you cannot verify is worse than no claim.
+Windows and Linux are not planned. This is a native macOS app, using AppKit's
+pasteboard directly — porting it would mean writing it again.
 
-## What it handles
-
-Every pasteboard type macOS defines, not a text-only subset:
-
-| Category | Types |
-|---|---|
-| Text | `public.utf8-plain-text`, `public.utf8-tab-separated-values-text` |
-| Rich text | `public.rtf`, `com.apple.flat-rtfd`, `public.html` |
-| Images | `public.png`, `public.tiff`, `com.adobe.pdf` |
-| Files | `public.file-url` — multi-file copies stay multi-file |
-| Links | `public.url` |
-| Colour | `com.apple.cocoa.pasteboard.color`, resolved to sRGB |
-| Sound | `com.apple.cocoa.pasteboard.sound` |
-| Fonts & rulers | `com.apple.cocoa.pasteboard.font`, `…ruler` |
-| Anything else | Custom UTIs, preserved and replayed verbatim |
-
-A single copy can carry several of these at once — a paragraph from Safari arrives
-as plain text, RTF *and* HTML — and MacCV keeps all of them, so it can paste into
-whatever the target app asks for.
-
-## Settings
-
-- **General** — history size, and interface language (follows the system, or pin
-  English / 简体中文).
-- **Privacy** — mask sensitive content, keep a recognisable hint, skip concealed
-  entries, paste without the clipboard, and the Accessibility permission state.
-- **Updates** — automatic / notify-only / manual, an optional pre-release channel,
-  and `Check for Updates`.
-- **About** — version, build, engine version, and links.
-
-## Updates
-
-`Check for Updates` reads a manifest published on the [website](https://yxxbc.github.io/Maccv/latest.json).
-Installing runs a fixed sequence, and the order is the point:
-
-1. download to a staging directory
-2. verify the **SHA-256** — a mismatch deletes the file and stops
-3. verify the **code signature** with `spctl`
-4. **only then** clear `com.apple.quarantine`
-5. report which of those actually succeeded
-
-Step 4 is what prevents the notorious *"MacCV is damaged and can't be opened"*
-dialog. An app that downloads a new version of itself inherits the quarantine
-attribute from its parent, and macOS refuses to launch a quarantined,
-non-notarized bundle. Clearing the flag *before* verification would defeat the flag
-entirely — which is why an update whose signature does not validate is reported as
-such and left quarantined rather than silently installed.
-
-MacCV does **not** replace its own running bundle. A half-completed swap of a live
-app is worse than asking you to drag one file, so the verified, de-quarantined
-bundle is revealed in Finder and you finish the job.
+<br>
 
 ## Requirements
 
-- macOS 27 or later
-- To build: Xcode 27, Rust 1.85+, [XcodeGen](https://github.com/yonaskolb/XcodeGen)
+- **macOS 15 or later** (Sequoia), Apple silicon or Intel
+- Nothing else. No helper, no daemon, no account
 
-## Build and run
+<br>
+
+## Security
+
+Most clipboard managers are vague here. Here is the accurate version.
+
+> **Once content is on the system pasteboard, any application on your Mac can read
+> it.** That is not a bug or a missing feature — it is how macOS is designed. There
+> is no API to write to the pasteboard privately. The `ConcealedType` marker that
+> password managers set is a voluntary convention, and macOS's own access control
+> decides only whether *this* app may read, never whether anyone else may.
+
+So MacCV does the one thing that actually works: **Paste Without Clipboard** sends
+your text to the frontmost app as synthetic keystrokes. The content never enters a
+shared channel, so no other process *can* observe it. That is a guarantee, not a
+policy.
+
+It has real costs, which is why it is off by default:
+
+| | |
+|---|---|
+| **Needs Accessibility access** | Injecting input into another app is exactly what that permission gates |
+| **Slower** | Delivered at typing pace, not instantly |
+| **Text only** | An image has no keystroke form, so images use the clipboard path |
+
+What MacCV does guarantee:
+
+- **Nothing leaves your Mac.** There is no telemetry, no analytics, no crash
+  reporting, and no account. The only network requests are update checks.
+- **Your history is never written to disk**, so other apps cannot read it.
+- **No AI ever reads your data.** There is no model, local or remote.
+
+And what it does **not** claim: it cannot stop another app reading the clipboard.
+Nothing can. This is written down plainly because a privacy claim you cannot verify
+is worse than no claim at all.
+
+**Full detail:** [Security standards](docs/SECURITY.md) ·
+[How updates are verified](docs/SECURITY.md#s3-update-integrity)
+
+<br>
+
+## Light
+
+An idle clipboard manager should be invisible.
+
+<div align="center">
+
+| | | | |
+|---|---|---|---|
+| **0.53 µs** | **9.9 µs** | **1.9 MB** | **0 bytes** |
+| to notice a copy | to read text | app bundle | written to disk while idle |
+
+</div>
+
+It checks the clipboard ~2000× a second right after a copy, then backs off to four
+times a second when nothing is happening. No timer runs in the UI. Every number here
+is asserted by a test, so it cannot quietly stop being true —
+see [performance standards](docs/PERFORMANCE.md).
+
+<br>
+
+## Build it yourself
+
+Requires Xcode 27, Rust 1.85+ and [XcodeGen](https://github.com/yonaskolb/XcodeGen).
 
 ```bash
 git clone https://github.com/yxxbc/Maccv.git
 cd Maccv
 
-# Rust engine: build and test it on its own
-cargo test
-cargo build --release -p maccv-ffi
-
-# The app (generates MacCV.xcodeproj, then builds it)
-cd apps/mac
-xcodegen generate
-xcodebuild -scheme MacCV -configuration Release build
+Scripts/verify.sh          # every check, 16 stages
+cd apps/mac && xcodegen generate && open MacCV.xcodeproj
 ```
 
 `apps/mac/project.yml` is the source of truth for the Xcode project; the
-`.xcodeproj` is generated and not committed. A pre-build phase compiles the Rust
-engine and links it in, so an Xcode build is the only step you need.
+`.xcodeproj` is generated and not committed. A build phase compiles the Rust engine
+and links it in.
 
-### Verifying a build
-
-```bash
-cargo fmt --all --check
-cargo clippy --workspace --all-targets -- -D warnings
-cargo test                                  # 109 tests
-xcodebuild -scheme MacCV build
-
-# The compiled app exercises the whole stack, end to end:
-"$BUILD_DIR/MacCV.app/Contents/MacOS/MacCV" --self-test
-```
-
-The self-test runs against a **process-private** pasteboard, so it never reads or
-clobbers your real clipboard and CI does not depend on what happens to be copied.
-
-`Scripts/publish.sh` creates the GitHub repository, sets its description and
-topics, and pushes. It is a script you run deliberately, because publishing is an
-outward-facing action rather than a build step.
+<br>
 
 ## Project layout
 
-```
-crates/maccv-core/       Rust engine — the interesting part
-  pasteboard.rs            NSPasteboard read/write, snapshots, watching
-  content.rs               typed views and classification
-  secure_input.rs          synthetic typing (paste without a clipboard)
-  redaction.rs             sensitive-content detection and masking
-  updater.rs               update check, verification, de-quarantining
-crates/maccv-ffi/        C ABI bridge; generates include/maccv.h
-apps/mac/                SwiftUI app; project.yml is the project source of truth
-  Resources/Localizable.xcstrings   English and Simplified Chinese
-docs/                    The website (GitHub Pages)
-Scripts/                 build-rust.sh, changelog-notes.sh, publish.sh
-assets/                  Logo and social preview (SVG + rendered PNG)
-```
+| | |
+|---|---|
+| `crates/maccv-core/` | The engine. Clipboard, redaction, secure input, updates. |
+| `crates/maccv-ffi/` | C ABI bridge. Generates `include/maccv.h`. |
+| `apps/mac/` | SwiftUI app. `project.yml` is the source of truth. |
+| `docs/` | [Website](docs/) plus the [standards](docs/SECURITY.md). |
+| `Scripts/` | Build, verify, package, release. |
 
-### How the two halves connect
+The engine is plain Rust, testable on its own. The app links it as a **static
+library**, so there is no IPC, no serialization step, and no helper process — the
+reason a pasteboard read is microseconds rather than milliseconds.
 
-`maccv-core` is plain Rust with no C concerns, so it is used and tested directly.
-`maccv-ffi` is a thin `staticlib` exposing it over a C ABI; `cbindgen` generates
-`maccv.h` during the build. Swift imports that header through a bridging header and
-calls straight into Rust — same address space, no marshalling layer.
+<br>
 
-Three decisions worth knowing about:
+## Documentation
 
-**The watcher opens its own handle.** `objc2` deliberately does not mark `NSObject`
-subclasses `Send`. Rather than force it with an `unsafe impl`, the watcher thread
-reopens the pasteboard by name and only the change counter crosses the thread
-boundary.
+| | |
+|---|---|
+| [Security](docs/SECURITY.md) | What is guaranteed, what macOS makes impossible, plugin model |
+| [Performance](docs/PERFORMANCE.md) | Budgets, how each number is measured, regression policy |
+| [Testing](docs/TESTING.md) | What is tested, and what is not |
+| [Releasing](docs/RELEASING.md) | Channels, the release procedure, emergency revocation |
+| [Contributing](CONTRIBUTING.md) | Setup, conventions, the house rules |
+| [Changelog](CHANGELOG.md) | What changed, per version |
 
-**A snapshot is one allocation, and owns its bytes.** The C ABI returns a single
-block containing the item array, representation arrays, payload bytes and strings.
-Freeing the snapshot frees all of it, and nothing points into Rust memory that has
-already been dropped.
-
-**Redaction happens on the way in.** Masking an entry when it is recorded, rather
-than when it is drawn, means the stored preview and payloads are redacted too — so
-a screenshot of the panel or a look at process memory does not expose the value.
-
-## macOS 27 and pasteboard privacy
-
-macOS 27 polices programmatic access to the general pasteboard. The first time an
-app reads it the system may ask, and the answer can be remembered as *never allow*,
-permanently.
-
-MacCV treats that as a first-class state rather than an error to retry: the engine
-reports `AccessDenied`, the panel explains what happened and links to the right
-System Settings pane, and nothing polls in a loop trying to get around a refusal.
+<br>
 
 ## Roadmap
 
-- [x] Full-type pasteboard read/write, lossless round trips
-- [x] Change watching with adaptive polling
-- [x] Multi-item (*n* files, *n* items) fidelity
-- [x] SwiftUI menu-bar panel
+- [x] Every pasteboard format, lossless
+- [x] Menu-bar panel with search
 - [x] Paste without the clipboard
 - [x] Sensitive-content masking
-- [x] In-app updates with signature verification and quarantine removal
-- [x] English and Simplified Chinese interface
-- [ ] On-disk history (SQLite) surviving relaunch
-- [ ] Global hotkey
-- [ ] Drag and drop into and out of the panel
-- [ ] Pinned entries, per-app rules
-- [ ] Notarization so the app opens without a Gatekeeper prompt
+- [x] Signed, verified, self-updating releases
+- [x] English and 简体中文
+- [x] macOS 15, universal binary
+- [ ] Global hotkey with a centred panel
+- [ ] Drag content in and out
+- [ ] On-disk history that survives relaunch
+- [ ] Notarization, so the first launch is silent
+
+<br>
 
 ## Contributing
 
-Issues and pull requests are welcome — see [CONTRIBUTING.md](CONTRIBUTING.md) and
-the [Code of Conduct](CODE_OF_CONDUCT.md).
+Issues and pull requests are welcome. Read [CONTRIBUTING.md](CONTRIBUTING.md) first —
+it covers the conventions and the two rules that matter most: tests run against a
+private pasteboard so your clipboard is never touched, and a privacy claim needs a
+check behind it.
 
-The tests in `crates/maccv-core/tests/clipboard.rs` run against a real
-`NSPasteboard` (a private one, so your clipboard is untouched), and they are the
-best description of intended behaviour.
+<br>
 
 ## License
 
-[Apache-2.0](LICENSE) © yxxbc
+[Apache-2.0](LICENSE) © 2026 yxxbc
 
-## Acknowledgements
+Built on [`objc2`](https://github.com/madsmtm/objc2), which is what makes a Rust
+AppKit engine pleasant rather than hazardous.
 
-Built on [`objc2`](https://github.com/madsmtm/objc2) for safe Objective-C interop,
-which is what makes a Rust AppKit engine pleasant rather than hazardous.
+</div>
