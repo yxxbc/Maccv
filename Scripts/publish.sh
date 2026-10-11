@@ -24,7 +24,7 @@ OWNER="yxxbc"
 NAME="Maccv"
 VISIBILITY="--public"
 DESCRIPTION="A fast, faithful macOS clipboard manager. Rust engine, SwiftUI front end, full NSPasteboard fidelity."
-HOMEPAGE="https://github.com/${OWNER}/${NAME}"
+HOMEPAGE="https://${OWNER}.github.io/${NAME}/"
 
 # The shape of the repository's About panel.
 TOPICS=(
@@ -47,7 +47,7 @@ while [[ $# -gt 0 ]]; do
     --private) VISIBILITY="--private"; shift ;;
     --public) VISIBILITY="--public"; shift ;;
     --description) DESCRIPTION="$2"; shift 2 ;;
-    --owner) OWNER="$2"; HOMEPAGE="https://github.com/$2/${NAME}"; shift 2 ;;
+    --owner) OWNER="$2"; HOMEPAGE="https://$2.github.io/${NAME}/"; shift 2 ;;
     -h|--help) sed -n '2,18p' "${BASH_SOURCE[0]}"; exit 0 ;;
     *) echo "unknown argument: $1" >&2; exit 2 ;;
   esac
@@ -112,6 +112,13 @@ gh repo edit "$FULL_NAME" \
   --description "$DESCRIPTION" \
   --homepage "$HOMEPAGE"
 
+echo "==> enabling GitHub Pages (build from Actions)"
+# The site is deployed by .github/workflows/pages.yml, not from a branch, so
+# GitHub needs to be told the source is Actions.
+gh api --method POST "repos/${FULL_NAME}/pages" \
+  -f "build_type=workflow" >/dev/null 2>&1 \
+  || echo "    (Pages may already be configured, or needs enabling once in Settings)"
+
 echo "==> setting topics"
 # Space-separated in one argument, as the API expects.
 gh repo edit "$FULL_NAME" --add-topic "${TOPICS[*]// /,}"
@@ -124,12 +131,21 @@ gh repo edit "$FULL_NAME" --add-topic "${TOPICS[*]// /,}"
 
 SOCIAL="$REPO_ROOT/assets/social-preview.png"
 echo
-echo "==> repository is live: https://github.com/${FULL_NAME}"
+echo "==> repository is live:  https://github.com/${FULL_NAME}"
+echo "==> website will be at:  ${HOMEPAGE}"
+echo "    (live once the Website workflow finishes on this push)"
 echo
-echo "One step is still manual, because GitHub has no API for it:"
-echo "  1. Open https://github.com/${FULL_NAME}/settings"
-echo "  2. Social preview → Upload an image → ${SOCIAL}"
+echo "Two steps are still manual, because GitHub exposes no API for either:"
+echo "  1. Social preview"
+echo "     https://github.com/${FULL_NAME}/settings"
+echo "     → Social preview → Upload an image → ${SOCIAL}"
+echo "  2. Custom domain (only if you want one instead of ${OWNER}.github.io)"
+echo "     Same settings page → Pages → Custom domain"
 echo
 echo "Verify:"
 echo "  gh repo view ${FULL_NAME} --web"
-echo "  gh run list --repo ${FULL_NAME}    # CI should start on the pushed commit"
+echo "  gh run list --repo ${FULL_NAME}                      # CI + Website on this push"
+echo "  curl -sI ${HOMEPAGE}latest.json | head -1             # the update feed"
+echo
+echo "Then tag the first release, which also refreshes the site's update feed:"
+echo "  git tag -a v0.1.0 -m 'MacCV 0.1.0' && git push origin v0.1.0"

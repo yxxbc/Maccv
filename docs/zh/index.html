@@ -1,0 +1,217 @@
+<!DOCTYPE html>
+<html lang="zh-Hans">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>MacCV —— 快、轻、私密的 macOS 剪贴板</title>
+<meta name="description" content="面向 macOS 27 的菜单栏剪贴板管理器，Rust 引擎。完整的原生剪贴板保真、0.53 µs 变更检测，并可选「不经过剪贴板粘贴」，使其他应用无法读取你粘贴的内容。">
+<meta property="og:title" content="MacCV —— 快、轻、私密的 macOS 剪贴板">
+<meta property="og:description" content="完整的原生剪贴板保真。0.53 µs 变更检测。不经过剪贴板粘贴。">
+<meta property="og:image" content="https://yxxbc.github.io/Maccv/social-preview.png">
+<meta property="og:url" content="https://yxxbc.github.io/Maccv/zh/">
+<meta property="og:type" content="website">
+<meta name="twitter:card" content="summary_large_image">
+<link rel="icon" href="../logo.png">
+<link rel="alternate" hreflang="en" href="https://yxxbc.github.io/Maccv/">
+<link rel="alternate" hreflang="zh-Hans" href="https://yxxbc.github.io/Maccv/zh/">
+<link rel="stylesheet" href="../style.css">
+</head>
+<body>
+
+<header>
+  <div class="wrap nav">
+    <a class="brand" href="./">
+      <img src="../logo.png" alt="">
+      <span>MacCV</span>
+    </a>
+    <nav class="links">
+      <a href="#why">核心理念</a>
+      <a href="#privacy">隐私</a>
+      <a href="#formats">格式支持</a>
+      <a href="#updates">更新</a>
+      <a href="#build">构建</a>
+    </nav>
+    <span class="spacer"></span>
+    <span class="lang">
+      <a href="../" hreflang="en" lang="en">EN</a>
+      <span aria-hidden="true">·</span>
+      <span class="current">中文</span>
+    </span>
+  </div>
+</header>
+
+<main>
+
+  <div class="wrap hero">
+    <img class="mark" src="../logo.png" alt="MacCV 图标">
+    <h1>快、轻、<br>私密的剪贴板</h1>
+    <p class="tagline">原生 macOS 剪贴板保真，Rust 引擎驱动 —— 并且可以选择完全不经过剪贴板来粘贴。</p>
+    <div class="actions">
+      <a class="btn primary" href="https://github.com/yxxbc/Maccv/releases/latest">下载 macOS 版</a>
+      <a class="btn secondary" href="https://github.com/yxxbc/Maccv">查看源码</a>
+    </div>
+    <p class="meta">通用二进制 · 需要 macOS 27 或更高版本 · Apache-2.0</p>
+  </div>
+
+  <section id="why" class="wrap">
+    <h2>三个核心理念</h2>
+    <p class="lead">具体到可以被验证。凡是 macOS 本身有限制的地方，本页会直说，而不是含糊其辞。</p>
+
+    <div class="pillars">
+      <div class="pillar">
+        <div class="icon" aria-hidden="true">⚡</div>
+        <h3>快</h3>
+        <p>速度决定了架构，而不是反过来。Rust 引擎是直接链入应用的静态库：没有 IPC、没有序列化、没有辅助进程。</p>
+        <ul>
+          <li>变更检测耗时 0.53 µs</li>
+          <li>采用轮询，因此无需事件监听，也就不必为了感知复制而索取辅助功能权限</li>
+          <li>底层就是直接的 Objective-C 消息发送</li>
+        </ul>
+      </div>
+
+      <div class="pillar">
+        <div class="icon" aria-hidden="true">🪶</div>
+        <h3>轻</h3>
+        <p>闲置的剪贴板管理器应该是不存在的。监听线程在复制发生后以 400 µs 轮询，无变化时退避至 250 ms。</p>
+        <ul>
+          <li>UI 层没有任何定时器</li>
+          <li>历史保存在内存中，条数由你决定</li>
+          <li>Release 包体 1.9 MB</li>
+        </ul>
+      </div>
+
+      <div class="pillar">
+        <div class="icon" aria-hidden="true">🔒</div>
+        <h3>私密</h3>
+        <p>你可以让内容完全不进入剪贴板就完成粘贴，因此其他进程无法观察到它。这是真实的保证 —— 代价也同样真实，列在下方。</p>
+        <ul>
+          <li>被标记为隐藏的条目永不记录</li>
+          <li>敏感内容在「存储时」即打码，而不只是显示时</li>
+          <li>数据不离开你的 Mac</li>
+        </ul>
+      </div>
+    </div>
+
+    <div class="metrics">
+      <div class="metric"><div class="value">0.53 µs</div><div class="label">变更检测</div></div>
+      <div class="metric"><div class="value">9.9 µs</div><div class="label">读取纯文本</div></div>
+      <div class="metric"><div class="value">116 µs</div><div class="label">感知外部复制</div></div>
+      <div class="metric"><div class="value">1.9 MB</div><div class="label">Release 包体</div></div>
+    </div>
+    <p class="muted mt">数据在 Apple 芯片上实测，并由测试套件断言，而非手工测一次。</p>
+  </section>
+
+  <section id="privacy" class="wrap">
+    <h2>「私密」能诚实意味着什么</h2>
+    <p class="lead">多数剪贴板管理器在这个问题上夸大了其词。这里是准确的版本。</p>
+
+    <div class="limit">
+      <h3>一个不舒服的事实</h3>
+      <p>内容一旦进入系统剪贴板，Mac 上<strong>任何</strong>应用都能读取。这不是缺失的功能，而是 macOS 的设计。没有任何 API 可以把内容写进剪贴板而不被他人读取。</p>
+      <p><code>NSPasteboardContentsOptionsCurrentHostOnly</code> 阻止的是同步到你的其他设备，不是其他应用。AppKit 里根本没有 <code>concealed</code> 或 <code>transient</code> 标志；<code>org.nspasteboard.ConcealedType</code> 只是靠应用自愿遵守的约定。而 <code>NSPasteboardAccessBehavior</code> 管的是<em>你自己</em>能不能读，从来管不着别人。</p>
+    </div>
+
+    <div class="cards mt">
+      <div class="card">
+        <h3>所以：不经过剪贴板粘贴</h3>
+        <p>开启该设置后，选择「不经过剪贴板粘贴」，内容会以合成按键直接输入到最前面的应用。内容全程不进入任何共享通道，因此其他进程<em>在物理上无法</em>观察到它。这是唯一能真正兑现这项保证的机制。</p>
+      </div>
+      <div class="card">
+        <h3>它诚实的代价</h3>
+        <p>它需要<strong>辅助功能权限</strong> —— 因为向其他应用注入事件正是该权限所管辖的能力。它<strong>更慢</strong>，事件按打字速度投递。而且它<strong>仅限文本</strong>：图片没有对应的按键表示，仍需走剪贴板路径。</p>
+      </div>
+    </div>
+
+    <table class="mt">
+      <thead>
+        <tr><th>措施</th><th>真正保证的是什么</th></tr>
+      </thead>
+      <tbody>
+        <tr><td>历史记录存在应用容器内</td><td>其他应用读不到你的历史。共享的永远只有那一次剪贴板写入，而不是整份记录。</td></tr>
+        <tr><td>跳过隐藏条目</td><td>密码管理器标记为隐藏的条目永不记录 —— 这是尊重明确意图，而不是猜测。</td></tr>
+        <tr><td>敏感内容打码</td><td>卡号、API 密钥、JWT、私钥、带凭据的连接串、邮箱、身份证号，在<em>记录时</em>即打码，而不只是显示时。</td></tr>
+        <tr><td>替换自身前必须确认</td><td>下载的更新先校验、再呈现。MacCV 绝不静默改写自己的包体。</td></tr>
+      </tbody>
+    </table>
+
+    <p class="muted mt">MacCV 无法阻止其他应用读取剪贴板 —— 没有东西能做到。如果你需要这个，请使用「不经过剪贴板粘贴」，或者不要把机密放上剪贴板。本页把这点写明，因为一个你无法验证的隐私声明，比没有声明更糟。</p>
+  </section>
+
+  <section id="formats" class="wrap">
+    <h2>剪贴板里的一切，而不只是文本</h2>
+    <p class="lead">多数管理器会把内容压扁成字符串：复制一个表格得到制表符分隔的文本，从设计工具复制得到一张位图。MacCV 保留每一种表示，并逐字节回放。</p>
+
+    <table>
+      <thead><tr><th>类别</th><th>类型</th></tr></thead>
+      <tbody>
+        <tr><td>文本</td><td><code>public.utf8-plain-text</code>、制表符分隔文本</td></tr>
+        <tr><td>富文本</td><td><code>public.rtf</code>、<code>com.apple.flat-rtfd</code>、<code>public.html</code></td></tr>
+        <tr><td>图片</td><td><code>public.png</code>、<code>public.tiff</code>、<code>com.adobe.pdf</code></td></tr>
+        <tr><td>文件</td><td><code>public.file-url</code> —— 多文件复制保持多条目</td></tr>
+        <tr><td>链接</td><td><code>public.url</code></td></tr>
+        <tr><td>颜色</td><td><code>com.apple.cocoa.pasteboard.color</code>，解析为 sRGB</td></tr>
+        <tr><td>声音</td><td><code>com.apple.cocoa.pasteboard.sound</code></td></tr>
+        <tr><td>字体、标尺</td><td><code>com.apple.cocoa.pasteboard.font</code>、<code>…ruler</code></td></tr>
+        <tr><td>其他</td><td>自定义 UTI，原样保存、原样回放</td></tr>
+      </tbody>
+    </table>
+
+    <p class="muted mt">一次复制可以同时携带多种格式 —— 从 Safari 复制一段文字会同时带来纯文本、RTF <em>和</em> HTML —— MacCV 会全部保留，因此无论目标应用要哪种格式都能正确粘贴。</p>
+  </section>
+
+  <section id="updates" class="wrap">
+    <h2>不会报「已损坏」的更新</h2>
+    <p class="lead">一个下载自身新版本并替换自己的应用，会从父进程继承隔离属性，而 macOS 拒绝启动被隔离且未公证的包。通常的结果就是那个令人困惑的「MacCV 已损坏，无法打开」对话框。避免它的关键在于操作顺序。</p>
+
+    <ol class="steps">
+      <li>下载到暂存目录</li>
+      <li>校验 <strong>SHA-256</strong> —— 不匹配则删除文件并终止</li>
+      <li>用 <code>spctl</code> 校验<strong>代码签名</strong></li>
+      <li><strong>只有此时</strong>才清除 <code>com.apple.quarantine</code></li>
+      <li>如实报告每一步的结论</li>
+    </ol>
+
+    <p class="muted mt">如果在校验<em>之前</em>清除该属性，就等于彻底废掉了它的意义 —— 所以签名校验不通过的更新会被如实报告并保持隔离，而不是悄悄装上。MacCV 同样不会替换自己正在运行的包体：在一个应用运行时做半途而废的替换，比请你手动拖一个文件更糟；因此校验通过的包体会在访达中显示，由你完成最后一步。</p>
+  </section>
+
+  <section id="build" class="wrap">
+    <h2>自行构建</h2>
+    <p class="lead">需要 macOS 27、Xcode 27、Rust 1.85+ 与 XcodeGen。引擎可独立构建与测试；Xcode 工程由单个 YAML 文件生成。</p>
+
+<pre><code>git clone https://github.com/yxxbc/Maccv.git
+cd Maccv
+
+cargo test                      # Rust 引擎，109 个测试
+cargo build --release -p maccv-ffi
+
+cd apps/mac
+xcodegen generate               # project.yml 是工程的事实来源
+xcodebuild -scheme MacCV -configuration Release build</code></pre>
+
+    <p class="muted mt">每一层都能自检，包括编译出的应用：它会针对进程私有剪贴板端到端验证 Swift → C ABI → Rust 整条链路，因此绝不会动到你真实的剪贴板。</p>
+  </section>
+
+  <section class="wrap">
+    <h2>接下来</h2>
+    <div class="cards">
+      <div class="card"><h3>已交付</h3><p>全类型保真、自适应监听、多条目复制、菜单栏面板、不经过剪贴板粘贴、敏感内容打码、带签名校验的应用内更新，以及双语界面。</p></div>
+      <div class="card"><h3>计划中</h3><p>重启后保留的磁盘历史、全局快捷键、拖放、固定条目与按应用规则。</p></div>
+      <div class="card"><h3>将来</h3><p>代码公证，使其打开时不再出现 Gatekeeper 提示。</p></div>
+    </div>
+  </section>
+
+</main>
+
+<footer>
+  <div class="wrap row">
+    <span>MacCV 0.1.0 · Apache-2.0 · © 2026 yxxbc</span>
+    <span class="spacer"></span>
+    <a href="https://github.com/yxxbc/Maccv">源码</a>
+    <a href="https://github.com/yxxbc/Maccv/blob/main/CHANGELOG.md">更新日志</a>
+    <a href="https://github.com/yxxbc/Maccv/issues">问题反馈</a>
+    <a href="../" hreflang="en" lang="en">English</a>
+  </div>
+</footer>
+
+</body>
+</html>

@@ -21,6 +21,14 @@ jobs:
   release:
     name: Publish release
     runs-on: xcode-27
+    # Consumed by the `website` job below.
+    outputs:
+      version: ${{ steps.version.outputs.version }}
+      tag: ${{ steps.version.outputs.tag }}
+      download_url: ${{ steps.package.outputs.download_url }}
+      sha256: ${{ steps.package.outputs.sha256 }}
+      size: ${{ steps.package.outputs.size }}
+      prerelease: ${{ steps.version.outputs.prerelease }}
     steps:
       - uses: actions/checkout@v7
         with:
@@ -37,9 +45,17 @@ jobs:
             TAG="${GITHUB_REF_NAME}"
           fi
           VERSION="${TAG#v}"
+          # 0.x and hyphenated tags are pre-releases, by the same rule the release
+          # is published under.
+          if [[ "$VERSION" == *-* || "$VERSION" == 0.* ]]; then
+            PRERELEASE=true
+          else
+            PRERELEASE=false
+          fi
           {
             echo "tag=$TAG"
             echo "version=$VERSION"
+            echo "prerelease=$PRERELEASE"
           } >> "$GITHUB_OUTPUT"
           echo "Releasing $TAG (version $VERSION)"
 
@@ -113,13 +129,17 @@ jobs:
           ditto -c -k --keepParent "$APP" "$ARCHIVE"
 
           SHA=$(shasum -a 256 "$ARCHIVE" | awk '{print $1}')
+          SIZE_BYTES=$(stat -f%z "$ARCHIVE")
           SIZE=$(du -h "$ARCHIVE" | cut -f1)
+          # The feed needs the exact asset URL, which is deterministic from the tag.
+          DOWNLOAD_URL="https://github.com/${{ github.repository }}/releases/download/${{ steps.version.outputs.tag }}/$ARCHIVE"
           {
             echo "archive=$ARCHIVE"
             echo "sha256=$SHA"
-            echo "size=$SIZE"
+            echo "size=$SIZE_BYTES"
+            echo "download_url=$DOWNLOAD_URL"
           } >> "$GITHUB_OUTPUT"
-          echo "Packaged $ARCHIVE ($SHA)"
+          echo "Packaged $ARCHIVE ($SIZE, sha256 $SHA)"
 
       - name: Generate the release notes from the changelog
         run: |
@@ -155,5 +175,24 @@ jobs:
           files: ${{ steps.package.outputs.archive }}
           draft: false
           # Mark 0.x and pre-release tags as prereleases automatically.
-          prerelease: ${{ contains(steps.version.outputs.version, '-') || startsWith(steps.version.outputs.version, '0.') }}
+          prerelease: ${{ steps.version.outputs.prerelease == 'true' }}
           fail_on_unmatched_files: true
+
+  # Refresh the website's update feed so installed copies of MacCV see this
+  # release. Separate job because it needs Pages permissions the release job
+  # above must not have.
+  website:
+    name: Update the site's release feed
+    needs: release
+    uses: ./.github/workflows/pages.yml
+    permissions:
+      contents: read
+      pages: write
+      id-token: write
+    with:
+      version: ${{ needs.release.outputs.version }}
+      tag: ${{ needs.release.outputs.tag }}
+      download_url: ${{ needs.release.outputs.download_url }}
+      sha256: ${{ needs.release.outputs.sha256 }}
+      size: ${{ needs.release.outputs.size }}
+      prerelease: ${{ needs.release.outputs.prerelease }}

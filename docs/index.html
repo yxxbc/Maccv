@@ -1,0 +1,217 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>MacCV — a fast, light, private macOS clipboard</title>
+<meta name="description" content="A menu-bar clipboard manager for macOS 27 with a Rust engine. Full native pasteboard fidelity, 0.53 µs change detection, and the option to paste without the clipboard so other apps cannot read what you paste.">
+<meta property="og:title" content="MacCV — a fast, light, private macOS clipboard">
+<meta property="og:description" content="Full native pasteboard fidelity. 0.53 µs change detection. Paste without the clipboard.">
+<meta property="og:image" content="https://yxxbc.github.io/Maccv/social-preview.png">
+<meta property="og:url" content="https://yxxbc.github.io/Maccv/">
+<meta property="og:type" content="website">
+<meta name="twitter:card" content="summary_large_image">
+<link rel="icon" href="logo.png">
+<link rel="alternate" hreflang="en" href="https://yxxbc.github.io/Maccv/">
+<link rel="alternate" hreflang="zh-Hans" href="https://yxxbc.github.io/Maccv/zh/">
+<link rel="stylesheet" href="style.css">
+</head>
+<body>
+
+<header>
+  <div class="wrap nav">
+    <a class="brand" href="./">
+      <img src="logo.png" alt="">
+      <span>MacCV</span>
+    </a>
+    <nav class="links">
+      <a href="#why">Why</a>
+      <a href="#privacy">Privacy</a>
+      <a href="#formats">Formats</a>
+      <a href="#updates">Updates</a>
+      <a href="#build">Build</a>
+    </nav>
+    <span class="spacer"></span>
+    <span class="lang">
+      <span class="current">EN</span>
+      <span aria-hidden="true">·</span>
+      <a href="zh/" hreflang="zh-Hans" lang="zh-Hans">中文</a>
+    </span>
+  </div>
+</header>
+
+<main>
+
+  <div class="wrap hero">
+    <img class="mark" src="logo.png" alt="MacCV icon">
+    <h1>A fast, light,<br>private clipboard</h1>
+    <p class="tagline">Native macOS pasteboard fidelity, with a Rust engine — and the option to paste without the clipboard at all.</p>
+    <div class="actions">
+      <a class="btn primary" href="https://github.com/yxxbc/Maccv/releases/latest">Download for macOS</a>
+      <a class="btn secondary" href="https://github.com/yxxbc/Maccv">View source</a>
+    </div>
+    <p class="meta">Universal binary · Requires macOS 27 or later · Apache-2.0</p>
+  </div>
+
+  <section id="why" class="wrap">
+    <h2>Three commitments</h2>
+    <p class="lead">Specific enough to be checked. Where macOS limits them, this page says so rather than implying otherwise.</p>
+
+    <div class="pillars">
+      <div class="pillar">
+        <div class="icon" aria-hidden="true">⚡</div>
+        <h3>Fast</h3>
+        <p>Speed decided the architecture, not the other way round. The Rust engine is a static library linked into the app: no IPC, no serialization, no helper process.</p>
+        <ul>
+          <li>Change detection in 0.53 µs</li>
+          <li>Polling, so no event tap and no Accessibility permission needed just to notice a copy</li>
+          <li>Direct Objective-C message sends underneath</li>
+        </ul>
+      </div>
+
+      <div class="pillar">
+        <div class="icon" aria-hidden="true">🪶</div>
+        <h3>Light</h3>
+        <p>An idle clipboard manager should be invisible. The watcher polls at 400 µs right after a copy, then backs off toward 250 ms while nothing changes.</p>
+        <ul>
+          <li>No timer in the UI layer</li>
+          <li>History in memory, bounded by your choice</li>
+          <li>1.9 MB release bundle</li>
+        </ul>
+      </div>
+
+      <div class="pillar">
+        <div class="icon" aria-hidden="true">🔒</div>
+        <h3>Private</h3>
+        <p>You can paste without the clipboard ever seeing the content, so no other process can observe it. That is a real guarantee — and it comes with real costs, listed below.</p>
+        <ul>
+          <li>Concealed entries are never recorded</li>
+          <li>Sensitive values are masked when stored, not just drawn</li>
+          <li>Nothing leaves your Mac</li>
+        </ul>
+      </div>
+    </div>
+
+    <div class="metrics">
+      <div class="metric"><div class="value">0.53 µs</div><div class="label">Change detection</div></div>
+      <div class="metric"><div class="value">9.9 µs</div><div class="label">Read plain text</div></div>
+      <div class="metric"><div class="value">116 µs</div><div class="label">Notice an external copy</div></div>
+      <div class="metric"><div class="value">1.9 MB</div><div class="label">Release bundle</div></div>
+    </div>
+    <p class="muted mt">Measured on Apple silicon and asserted by the test suite, not measured once by hand.</p>
+  </section>
+
+  <section id="privacy" class="wrap">
+    <h2>What “private” can honestly mean</h2>
+    <p class="lead">Most clipboard managers overstate this. Here is the accurate version.</p>
+
+    <div class="limit">
+      <h3>The uncomfortable fact</h3>
+      <p>Once content is on the system pasteboard, <strong>any</strong> application on the Mac can read it. That is not a missing feature — it is how macOS is designed. There is no API to write to the pasteboard privately.</p>
+      <p><code>NSPasteboardContentsOptionsCurrentHostOnly</code> stops syncing to your other devices, not to other apps. AppKit has no <code>concealed</code> or <code>transient</code> flag; the <code>org.nspasteboard.ConcealedType</code> convention is honoured only voluntarily. And <code>NSPasteboardAccessBehavior</code> governs whether <em>this</em> process may read — never whether anyone else may.</p>
+    </div>
+
+    <div class="cards mt">
+      <div class="card">
+        <h3>So: paste without the clipboard</h3>
+        <p>With the setting enabled, choosing “Paste Without Clipboard” sends the entry to the frontmost app as synthetic keystrokes. The content never enters a shared channel, so no other process <em>can</em> observe it. This is the only mechanism that actually delivers the guarantee.</p>
+      </div>
+      <div class="card">
+        <h3>Its honest costs</h3>
+        <p>It needs the <strong>Accessibility permission</strong>, because injecting events into another app is exactly what that permission gates. It is <strong>slower</strong> — events arrive at typing pace. And it is <strong>text only</strong>: an image has no keystroke representation, so images still take the clipboard path.</p>
+      </div>
+    </div>
+
+    <table class="mt">
+      <thead>
+        <tr><th>Control</th><th>What it actually guarantees</th></tr>
+      </thead>
+      <tbody>
+        <tr><td>History in the app container</td><td>Other applications cannot read your history. Only the pasteboard write is shared, never the log.</td></tr>
+        <tr><td>Skip concealed entries</td><td>Entries a password manager marked concealed are never recorded — honouring a stated intent rather than guessing.</td></tr>
+        <tr><td>Mask sensitive content</td><td>Card numbers, API keys, JWTs, private keys, credentialed URLs, emails and ID numbers are redacted when recorded, not only when displayed.</td></tr>
+        <tr><td>Confirm before replacing itself</td><td>A downloaded update is verified and then presented. MacCV never silently rewrites its own bundle.</td></tr>
+      </tbody>
+    </table>
+
+    <p class="muted mt">MacCV cannot stop another app from reading the clipboard. Nothing can. If you need that, use Paste Without Clipboard — or don’t put the secret on the clipboard. This page says so plainly because a privacy claim you cannot verify is worse than no claim at all.</p>
+  </section>
+
+  <section id="formats" class="wrap">
+    <h2>Everything the pasteboard holds, not just text</h2>
+    <p class="lead">Most managers flatten to a string. Copy a table and you get tab-separated text; copy from a design tool and you get a bitmap. MacCV keeps every representation and replays it byte-for-byte.</p>
+
+    <table>
+      <thead><tr><th>Category</th><th>Types</th></tr></thead>
+      <tbody>
+        <tr><td>Text</td><td><code>public.utf8-plain-text</code>, tab-separated values</td></tr>
+        <tr><td>Rich text</td><td><code>public.rtf</code>, <code>com.apple.flat-rtfd</code>, <code>public.html</code></td></tr>
+        <tr><td>Images</td><td><code>public.png</code>, <code>public.tiff</code>, <code>com.adobe.pdf</code></td></tr>
+        <tr><td>Files</td><td><code>public.file-url</code> — multi-file copies stay multi-file</td></tr>
+        <tr><td>Links</td><td><code>public.url</code></td></tr>
+        <tr><td>Colour</td><td><code>com.apple.cocoa.pasteboard.color</code>, resolved to sRGB</td></tr>
+        <tr><td>Sound</td><td><code>com.apple.cocoa.pasteboard.sound</code></td></tr>
+        <tr><td>Fonts, rulers</td><td><code>com.apple.cocoa.pasteboard.font</code>, <code>…ruler</code></td></tr>
+        <tr><td>Anything else</td><td>Custom UTIs, preserved and replayed verbatim</td></tr>
+      </tbody>
+    </table>
+
+    <p class="muted mt">A single copy can carry several at once — a paragraph from Safari arrives as plain text, RTF <em>and</em> HTML — and MacCV keeps all of them, so it can paste into whichever the target app asks for.</p>
+  </section>
+
+  <section id="updates" class="wrap">
+    <h2>Updates that do not say “damaged”</h2>
+    <p class="lead">An app that replaces itself with a downloaded bundle inherits the quarantine attribute from its parent, and macOS refuses to launch a quarantined, non-notarized replacement. The usual result is the misleading “MacCV is damaged and can’t be opened” dialog. The order of operations is what prevents it.</p>
+
+    <ol class="steps">
+      <li>Download to a staging directory</li>
+      <li>Verify the <strong>SHA-256</strong> — a mismatch deletes the file and stops</li>
+      <li>Verify the <strong>code signature</strong> with <code>spctl</code></li>
+      <li><strong>Only then</strong> clear <code>com.apple.quarantine</code></li>
+      <li>Report which of those actually succeeded</li>
+    </ol>
+
+    <p class="muted mt">Clearing the flag <em>before</em> verification would defeat the flag entirely — which is why an update whose signature does not validate is reported as such and left quarantined rather than silently installed. MacCV does not swap its own running bundle either: a half-completed replacement of a live app is worse than asking you to drag one file, so the verified bundle is revealed in Finder and you finish the job.</p>
+  </section>
+
+  <section id="build" class="wrap">
+    <h2>Build it yourself</h2>
+    <p class="lead">Requires macOS 27, Xcode 27, Rust 1.85+ and XcodeGen. The engine builds and tests on its own; the Xcode project is generated from a single YAML file.</p>
+
+<pre><code>git clone https://github.com/yxxbc/Maccv.git
+cd Maccv
+
+cargo test                      # the Rust engine, 109 tests
+cargo build --release -p maccv-ffi
+
+cd apps/mac
+xcodegen generate               # project.yml is the source of truth
+xcodebuild -scheme MacCV -configuration Release build</code></pre>
+
+    <p class="muted mt">Every layer can check itself, including the compiled app, which exercises Swift → C ABI → Rust end to end against a process-private pasteboard so it never touches your real clipboard.</p>
+  </section>
+
+  <section class="wrap">
+    <h2>Where it is going</h2>
+    <div class="cards">
+      <div class="card"><h3>Shipped</h3><p>Full-type fidelity, adaptive watching, multi-item copies, the menu-bar panel, paste without the clipboard, sensitive masking, in-app updates with signature verification, and a bilingual interface.</p></div>
+      <div class="card"><h3>Next</h3><p>On-disk history that survives relaunch, a global hotkey, drag and drop, pinned entries and per-app rules.</p></div>
+      <div class="card"><h3>Eventually</h3><p>Notarization, so the app opens without a Gatekeeper prompt.</p></div>
+    </div>
+  </section>
+
+</main>
+
+<footer>
+  <div class="wrap row">
+    <span>MacCV 0.1.0 · Apache-2.0 · © 2026 yxxbc</span>
+    <span class="spacer"></span>
+    <a href="https://github.com/yxxbc/Maccv">Source</a>
+    <a href="https://github.com/yxxbc/Maccv/blob/main/CHANGELOG.md">Changelog</a>
+    <a href="https://github.com/yxxbc/Maccv/issues">Issues</a>
+    <a href="zh/" hreflang="zh-Hans" lang="zh-Hans">简体中文</a>
+  </div>
+</footer>
+
+</body>
+</html>

@@ -1,0 +1,179 @@
+name: Website
+
+# Publishes the bilingual site in docs/ to GitHub Pages, and keeps the update feed
+# (docs/latest.json) in step with the newest release.
+on:
+  push:
+    branches: [main]
+    paths:
+      - "docs/**"
+      - ".github/workflows/pages.yml"
+  # Called by the release workflow so latest.json is refreshed as part of a release.
+  workflow_call:
+    inputs:
+      version:
+        description: "Version to publish into latest.json"
+        required: true
+        type: string
+      tag:
+        description: "Release tag"
+        required: true
+        type: string
+      download_url:
+        description: "Archive download URL"
+        required: true
+        type: string
+      sha256:
+        description: "Archive SHA-256"
+        required: true
+        type: string
+      size:
+        description: "Archive size in bytes"
+        required: true
+        type: string
+      prerelease:
+        description: "Whether this is a pre-release"
+        required: false
+        type: string
+        default: "false"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  pages: write
+  id-token: write
+
+# Never run two deployments at once, but do let a queued one proceed.
+concurrency:
+  group: pages
+  cancel-in-progress: false
+
+jobs:
+  build:
+    name: Build site
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+
+      - name: Refresh the update feed from the release
+        # Only when called by the release workflow; a plain docs push keeps the
+        # committed latest.json as-is.
+        if: ${{ inputs.version != '' }}
+        env:
+          VERSION: ${{ inputs.version }}
+          TAG: ${{ inputs.tag }}
+          DOWNLOAD_URL: ${{ inputs.download_url }}
+          SHA256: ${{ inputs.sha256 }}
+          SIZE: ${{ inputs.size }}
+          PRERELEASE: ${{ inputs.prerelease }}
+        run: |
+          set -euo pipefail
+          python3 - <<'PY'
+          import json, os, pathlib
+
+          path = pathlib.Path("docs/latest.json")
+          feed = json.loads(path.read_text(encoding="utf-8"))
+
+          feed["version"] = os.environ["VERSION"]
+          feed["tag"] = os.environ["TAG"]
+          feed["download_url"] = os.environ["DOWNLOAD_URL"]
+          feed["sha256"] = os.environ["SHA256"].lower()
+          feed["size"] = int(os.environ["SIZE"])
+          feed["prerelease"] = os.environ["PRERELEASE"].lower() == "true"
+
+          # Pull the notes for this version out of the changelog, so the feed and
+          # the release page cannot disagree.
+          import subprocess
+          notes = subprocess.run(
+              ["./Scripts/changelog-notes.sh", os.environ["VERSION"]],
+              capture_output=True, text=True, check=True,
+          ).stdout.strip()
+          feed["notes"] = notes
+
+          path.write_text(json.dumps(feed, indent=2, ensure_ascii=False) + "\n", encoding="utf-8")
+          print(f"latest.json -> {feed['version']}")
+
+          # The manifest must satisfy the updater's own validation, or every client
+          # will reject it. Fail here rather than shipping a feed nobody can use.
+          digest = feed["sha256"]
+          assert len(digest) == 64 and all(c in "0123456789abcdef" for c in digest), "bad sha256"
+          assert feed["download_url"].startswith("https://"), "download_url must be HTTPS"
+          print("feed validates")
+          PY
+
+      - name: Verify the site's internal links resolve
+        # A broken link in a docs-only deploy is otherwise only noticed by a visitor.
+        run: |
+          set -euo pipefail
+          python3 - <<'PY'
+          import pathlib, re, sys
+
+          docs = pathlib.Path("docs")
+          failures = []
+
+          for page in docs.rglob("*.html"):
+              text = page.read_text(encoding="utf-8")
+              base = page.parent
+              for href in re.findall(r'(?:href|src)="([^"]+)"', text):
+                  if href.startswith(("http://", "https://", "#", "mailto:")):
+                      continue
+                  target = (base / href.split("#")[0]).resolve()
+                  if href.split("#")[0] == "":
+                      continue
+                  if not target.exists():
+                      failures.append(f"{page.relative_to(docs)}: {href} -> missing")
+                  if target.is_dir() and not (target / "index.html").exists():
+                      failures.append(f"{page.relative_to(docs)}: {href} -> no index.html")
+
+          if failures:
+              print("broken links:")
+              for f in failures:
+                  print("  -", f)
+              sys.exit(1)
+          print(f"checked {len(list(docs.rglob('*.html')))} pages: no broken internal links")
+          PY
+
+      - name: Verify both languages cover the same sections
+        # The usual failure mode of a bilingual site is one language quietly going
+        # stale, so compare structure rather than trusting the author.
+        run: |
+          set -euo pipefail
+          python3 - <<'PY'
+          import pathlib, re, sys
+
+          def structure(path):
+              text = pathlib.Path(path).read_text(encoding="utf-8")
+              return {
+                  "sections": re.findall(r'<section id="([^"]+)"', text),
+                  "anchors": sorted(set(re.findall(r'href="#([^"]+)"', text))),
+                  "tables": text.count("<table"),
+                  "steps": text.count("<li>"),
+              }
+
+          en = structure("docs/index.html")
+          zh = structure("docs/zh/index.html")
+
+          problems = [k for k in en if en[k] != zh[k]]
+          if problems:
+              for k in problems:
+                  print(f"MISMATCH {k}:\n  en={en[k]}\n  zh={zh[k]}")
+              sys.exit(1)
+          print("en and zh pages are structurally identical")
+          PY
+
+      - uses: actions/configure-pages@v5
+
+      - uses: actions/upload-pages-artifact@v4
+        with:
+          path: docs
+
+  deploy:
+    name: Deploy to Pages
+    needs: build
+    runs-on: ubuntu-latest
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    steps:
+      - id: deployment
+        uses: actions/deploy-pages@v4

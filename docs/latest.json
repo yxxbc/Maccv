@@ -1,0 +1,11 @@
+{
+  "version": "0.1.0",
+  "tag": "v0.1.0",
+  "download_url": "https://github.com/yxxbc/Maccv/releases/download/v0.1.0/MacCV-0.1.0.zip",
+  "sha256": "0000000000000000000000000000000000000000000000000000000000000000",
+  "size": 0,
+  "minimum_system_version": "27.0",
+  "prerelease": false,
+  "published_at": "2026-10-11T00:00:00Z",
+  "notes": "First release."
+}

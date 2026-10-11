@@ -2,7 +2,7 @@
 //!
 //! Fast, faithful access to the macOS pasteboard (`NSPasteboard`).
 //!
-//! `maccv-core` is the engine behind [MacCV](https://github.com/yxxbc/Maccv). It
+//! `maccv-core` is the engine behind [MacCV](https://yxxbc.github.io/Maccv/). It
 //! aims to be a *complete* and *lossless* wrapper around the native pasteboard:
 //! whatever a native app can put on the pasteboard, this crate can read and write
 //! back byte-for-byte — plain text, rich text (RTF/RTFD/HTML), images

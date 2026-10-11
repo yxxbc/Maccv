@@ -27,6 +27,37 @@ this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 
 ## [Unreleased]
 
+### Added
+
+- **Paste without the clipboard.** Choosing it from an entry's context menu sends
+  the text to the frontmost app as synthetic keystrokes, so the content never
+  enters a pasteboard and no other process can read it. Requires the Accessibility
+  permission, is slower than a pasteboard round trip, and works for text only —
+  so it is off by default and offered as a choice.
+- **Sensitive-content masking.** Card numbers, API keys, tokens, JWTs, private
+  keys, credentialed connection strings, email addresses and ID numbers are
+  redacted when an entry is *recorded*, not only when it is drawn. Explicit
+  signals — a concealed or transient pasteboard entry, a private key — mark
+  content as never-recorded instead.
+- **Entries other apps marked concealed are skipped.** Password managers set this
+  marker precisely so their contents are not retained; honouring it relies on a
+  stated intent rather than a text heuristic.
+- **In-app updates.** Checks a published feed, then on install verifies the
+  SHA-256, verifies the code signature, and only then clears the quarantine
+  attribute — which is what prevents the "MacCV is damaged and can't be opened"
+  dialog. An update whose signature does not validate is reported as such and left
+  quarantined. MacCV does not replace its own running bundle.
+- **Settings window** with General, Privacy, Updates and About tabs.
+- **Bilingual interface.** English and Simplified Chinese, following the system
+  language by default and switchable in Settings.
+- **Website** at <https://yxxbc.github.io/Maccv/>, bilingual, which also serves the
+  update feed.
+
+### Changed
+
+- The project's public address is now the website rather than the repository; the
+  homepage link and documentation links point there.
+
 ## [0.1.0] - 2026-10-11
 
 First release. MacCV is a menu-bar clipboard manager that treats the macOS
