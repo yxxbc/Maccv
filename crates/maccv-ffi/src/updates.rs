@@ -446,7 +446,8 @@ pub enum MaccvUpdateChannel {
 /// The outcome of an update check. Owned; release with [`maccv_update_result_free`].
 #[repr(C)]
 pub struct MaccvUpdateResult {
-    /// 0 = up to date, 1 = update available, 2 = check failed.
+    /// 0 = up to date, 1 = update available, 2 = check failed, 3 = current version
+    /// has been revoked and must be replaced.
     status: u8,
     /// The newest version, when one was found.
     version: MaccvString,
@@ -460,6 +461,9 @@ pub struct MaccvUpdateResult {
     notes: MaccvString,
     /// Why the check failed, when it did.
     reason: MaccvString,
+    /// Whether the running version is revoked, in which case the UI must block on
+    /// the update rather than offering it.
+    forced: bool,
 }
 
 /// Checks the update feed for a newer release.
@@ -494,7 +498,8 @@ pub unsafe extern "C" fn maccv_update_check(
         );
         return MaccvError::NullPointer;
     };
-    let url = (unsafe { cstr_to_str(manifest_url) }).unwrap_or(maccv_core::DEFAULT_MANIFEST_URL);
+    // A null URL means "use this channel's official feed".
+    let url = unsafe { cstr_to_str(manifest_url) };
 
     let channel = match channel {
         MaccvUpdateChannel::Stable => UpdateChannel::Stable,
@@ -516,6 +521,16 @@ pub unsafe extern "C" fn maccv_update_check(
             sha256: MaccvString::owned(&manifest.sha256),
             size: manifest.size,
             notes: MaccvString::owned(&manifest.notes),
+            ..MaccvUpdateResult::empty()
+        }),
+        UpdateStatus::Revoked { manifest, .. } => Box::new(MaccvUpdateResult {
+            status: 3,
+            version: MaccvString::owned(&manifest.version),
+            download_url: MaccvString::owned(&manifest.download_url),
+            sha256: MaccvString::owned(&manifest.sha256),
+            size: manifest.size,
+            notes: MaccvString::owned(&manifest.notes),
+            forced: true,
             ..MaccvUpdateResult::empty()
         }),
         UpdateStatus::CheckFailed { reason } => Box::new(MaccvUpdateResult {
@@ -542,8 +557,49 @@ impl MaccvUpdateResult {
             size: 0,
             notes: MaccvString::EMPTY,
             reason: MaccvString::EMPTY,
+            forced: false,
         }
     }
+
+    /// Rebuilds a manifest from the individual C-level fields.
+    ///
+    /// Used by the download entry point, so the verification path is identical
+    /// whether the data came from the feed or from the caller.
+    fn to_manifest(&self) -> maccv_core::ReleaseManifest {
+        maccv_core::ReleaseManifest {
+            version: crate::updates::swift_string(self.version),
+            tag: String::new(),
+            download_url: crate::updates::swift_string(self.download_url),
+            sha256: crate::updates::swift_string(self.sha256).to_ascii_lowercase(),
+            size: self.size,
+            minimum_system_version: None,
+            prerelease: false,
+            notes: String::new(),
+            published_at: None,
+            revoked: Vec::new(),
+        }
+    }
+}
+
+/// Reads a `MaccvString` back into a `String`. Empty for a null pointer.
+fn swift_string(value: MaccvString) -> String {
+    // SAFETY: the pointer and length were produced by this library and stay valid
+    // until the owning result is freed.
+    unsafe { value.as_str() }.unwrap_or_default().to_owned()
+}
+
+/// Whether the running version has been revoked and the app must not keep running
+/// until it is replaced.
+///
+/// This is separate from the status code so a caller cannot accidentally treat a
+/// mandatory update as an ordinary one by checking only `status != OK`.
+///
+/// # Safety
+///
+/// `result` must be live from [`maccv_update_check`].
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn maccv_update_result_is_forced(result: *const MaccvUpdateResult) -> bool {
+    unsafe { result.as_ref() }.is_some_and(|result| result.forced)
 }
 
 /// 0 = up to date, 1 = update available, 2 = check failed.
@@ -747,6 +803,9 @@ pub unsafe extern "C" fn maccv_update_download(
         prerelease: false,
         notes: String::new(),
         published_at: None,
+        // Revocation is a property of the feed, not of a single download: the
+        // check already happened, and this path only fetches what it decided on.
+        revoked: Vec::new(),
     };
 
     let staging_path = Path::new(staging);
@@ -857,6 +916,75 @@ pub unsafe extern "C" fn maccv_staged_update_free(staged: *mut MaccvStagedUpdate
     for string in [boxed.archive_path, boxed.app_path, boxed.reason] {
         string.free_owned();
     }
+}
+
+/// Downloads and verifies the update described by a check result.
+///
+/// Preferred over [`maccv_update_download`] because it takes the result directly:
+/// the manifest is rebuilt from the same fields the check returned, so nothing can
+/// diverge between what was offered and what is verified.
+///
+/// # Safety
+///
+/// `result` must be live from [`maccv_update_check`]; `staging_dir` must be a
+/// NUL-terminated UTF-8 string; `out` must be valid and writable.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn maccv_update_download_result(
+    result: *const MaccvUpdateResult,
+    staging_dir: *const c_char,
+    out: *mut *mut MaccvStagedUpdate,
+) -> MaccvError {
+    if out.is_null() {
+        record_error(MaccvError::NullPointer, Some("out was null".into()));
+        return MaccvError::NullPointer;
+    }
+    let Some(result) = (unsafe { result.as_ref() }) else {
+        record_error(MaccvError::NullPointer, Some("result was null".into()));
+        return MaccvError::NullPointer;
+    };
+    if result.download_url.len == 0 {
+        record_error(
+            MaccvError::InvalidPayload,
+            Some("the check result has no download to fetch".into()),
+        );
+        return MaccvError::InvalidPayload;
+    }
+    let Some(staging) = (unsafe { cstr_to_str(staging_dir) }) else {
+        record_error(
+            MaccvError::NullPointer,
+            Some("staging_dir was null or invalid".into()),
+        );
+        return MaccvError::NullPointer;
+    };
+
+    let manifest = result.to_manifest();
+    let boxed = match maccv_core::download_and_verify(&manifest, Path::new(staging)) {
+        Ok(staged) => Box::new(MaccvStagedUpdate {
+            archive_path: MaccvString::owned(&staged.archive.to_string_lossy()),
+            app_path: MaccvString::owned(
+                &staged
+                    .app_bundle
+                    .as_ref()
+                    .map(|path| path.to_string_lossy().into_owned())
+                    .unwrap_or_default(),
+            ),
+            signature_valid: staged.signature_valid,
+            dequarantined: staged.dequarantined,
+            reason: MaccvString::EMPTY,
+        }),
+        Err(error) => Box::new(MaccvStagedUpdate {
+            archive_path: MaccvString::EMPTY,
+            app_path: MaccvString::EMPTY,
+            signature_valid: false,
+            dequarantined: false,
+            reason: MaccvString::owned(&error.to_string()),
+        }),
+    };
+
+    // SAFETY: `out` is non-null and writable.
+    unsafe { *out = Box::into_raw(boxed) };
+    record_ok();
+    MaccvError::Ok
 }
 
 /// Whether a path carries the `com.apple.quarantine` attribute.

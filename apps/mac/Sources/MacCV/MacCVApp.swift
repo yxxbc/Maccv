@@ -34,6 +34,9 @@ struct MacCVApp: App {
         _updates = State(initialValue: UpdateModel(settings: settings))
     }
 
+    /// Owns the blocking window shown when the running version is revoked.
+    @State private var revokedPresenter = RevokedVersionPresenter()
+
     var body: some Scene {
         MenuBarExtra {
             ClipboardPanel()
@@ -47,6 +50,16 @@ struct MacCVApp: App {
                 .accessibilityLabel(Text("app.name"))
         }
         .menuBarExtraStyle(.window)
+        .onChange(of: updates.isRevoked, initial: true) { _, revoked in
+            // Checked at launch and on every later check. If the running build has
+            // been withdrawn, the only correct next step is to say so.
+            guard revoked, case .revoked(let update, let current) = updates.phase else { return }
+            revokedPresenter.present(
+                currentVersion: current,
+                replacementVersion: update.version,
+                model: updates
+            )
+        }
 
         // Opening Settings from the menu bar. SwiftUI supplies the ⌘, shortcut and
         // the standard Settings menu item for this scene.

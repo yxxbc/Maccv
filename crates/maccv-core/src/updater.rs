@@ -35,9 +35,25 @@ use crate::error::{Error, Result};
 /// The attribute macOS uses to mark content that came from the internet.
 pub const QUARANTINE_ATTR: &str = "com.apple.quarantine";
 
-/// Where release metadata lives. The website is the canonical source so the
-/// check keeps working if the repository is renamed or moved.
+/// Where the stable release feed lives.
+///
+/// The website is the canonical source so the check keeps working if the
+/// repository is renamed or moved.
 pub const DEFAULT_MANIFEST_URL: &str = "https://yxxbc.github.io/Maccv/latest.json";
+
+/// Where the pre-release feed lives.
+///
+/// A separate document rather than one feed with a flag, because the two channels
+/// must be independently recoverable: if a preview build is bad, the stable feed
+/// should not have to be touched to contain the damage.
+pub const PREVIEW_MANIFEST_URL: &str = "https://yxxbc.github.io/Maccv/preview.json";
+
+/// Mirror prefix used when GitHub is unreachable.
+///
+/// GitHub's release endpoints are unavailable on some networks, and an update
+/// check that fails silently there is indistinguishable from "you are up to date".
+/// `gh-proxy.com` serves the original URL with this prefix attached.
+pub const MIRROR_PREFIX: &str = "https://gh-proxy.com/";
 
 /// How a release is delivered.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -73,6 +89,29 @@ pub struct ReleaseManifest {
     pub notes: String,
     /// Publication date, ISO 8601.
     pub published_at: Option<String>,
+    /// Versions that must not be run, because they were released with a defect
+    /// serious enough to warrant pulling them.
+    ///
+    /// A denylist rather than a minimum-version floor: a floor cannot express
+    /// "0.3.0 is bad but 0.2.9 and 0.3.1 are fine", and retreating every user to
+    /// the newest release is not always the right remedy.
+    ///
+    /// Revoking is a promise that can be broken by inaction, so the release
+    /// process treats adding an entry here as an emergency action with its own
+    /// checklist — see docs/RELEASING.md.
+    pub revoked: Vec<String>,
+}
+
+impl ReleaseManifest {
+    /// Whether `version` is on the revocation list.
+    ///
+    /// Compared with the same numeric-correct comparison used for ordering, so
+    /// `v0.2` and `0.2.0` cannot disagree.
+    pub fn is_revoked(&self, version: &str) -> bool {
+        self.revoked
+            .iter()
+            .any(|revoked| compare_versions(revoked, version) == std::cmp::Ordering::Equal)
+    }
 }
 
 impl ReleaseManifest {
@@ -114,6 +153,7 @@ impl ReleaseManifest {
             prerelease: json_bool(json, "prerelease").unwrap_or(false),
             notes: json_string(json, "notes").unwrap_or_default(),
             published_at: json_string(json, "published_at"),
+            revoked: json_string_array(json, "revoked"),
         })
     }
 
@@ -143,6 +183,17 @@ pub enum UpdateStatus {
     },
     /// A newer release exists.
     Available(Box<ReleaseManifest>),
+    /// The running version has been revoked and `manifest` is the replacement.
+    ///
+    /// Distinct from `Available` because the UI must behave differently: this is
+    /// the one case where the app blocks its own use, so it has to be an explicit
+    /// decision by the caller rather than a flag they might not read.
+    Revoked {
+        /// The version that must not keep running.
+        current: String,
+        /// The release that replaces it.
+        manifest: Box<ReleaseManifest>,
+    },
     /// The check could not complete. Carries a reason for the UI to show.
     CheckFailed {
         /// Why the check failed, in a form suitable for display.
@@ -154,14 +205,19 @@ impl UpdateStatus {
     /// The manifest, when an update is available.
     pub fn manifest(&self) -> Option<&ReleaseManifest> {
         match self {
-            Self::Available(manifest) => Some(manifest),
+            Self::Available(manifest) | Self::Revoked { manifest, .. } => Some(manifest),
             _ => None,
         }
     }
 
     /// Whether anything should be shown to the user.
     pub fn has_update(&self) -> bool {
-        matches!(self, Self::Available(_))
+        matches!(self, Self::Available(_) | Self::Revoked { .. })
+    }
+
+    /// Whether the running version must be replaced before it is used again.
+    pub fn is_forced(&self) -> bool {
+        matches!(self, Self::Revoked { .. })
     }
 }
 
@@ -199,12 +255,20 @@ pub struct StagedUpdate {
 ///
 /// This is the entry point for both the manual "Check for Updates" button and the
 /// silent background check; they differ only in what they do with the result.
+///
+/// `manifest_url` overrides the channel's default feed, which is how a test or a
+/// self-hosted deployment points at its own.
 pub fn check_for_update(
     current_version: &str,
-    manifest_url: &str,
+    manifest_url: Option<&str>,
     channel: UpdateChannel,
 ) -> UpdateStatus {
-    let body = match fetch(manifest_url, Duration::from_secs(15)) {
+    let url = manifest_url.unwrap_or(match channel {
+        UpdateChannel::Stable => DEFAULT_MANIFEST_URL,
+        UpdateChannel::Prerelease => PREVIEW_MANIFEST_URL,
+    });
+
+    let body = match fetch(url, Duration::from_secs(15)) {
         Ok(body) => body,
         Err(error) => {
             return UpdateStatus::CheckFailed {
@@ -221,6 +285,16 @@ pub fn check_for_update(
             };
         }
     };
+
+    // Revocation is checked before anything else, including the channel: a
+    // pre-release user on a revoked build must be pushed off it just as a stable
+    // user would be.
+    if manifest.is_revoked(current_version) {
+        return UpdateStatus::Revoked {
+            current: current_version.to_owned(),
+            manifest: Box::new(manifest),
+        };
+    }
 
     if manifest.prerelease && channel == UpdateChannel::Stable {
         return UpdateStatus::UpToDate {
@@ -321,12 +395,43 @@ pub fn download_and_verify(manifest: &ReleaseManifest, staging_dir: &Path) -> Re
 // Networking
 // ---------------------------------------------------------------------------
 
-/// Fetches a URL as text, with a hard timeout.
-///
-/// Shells out to `curl` rather than taking an HTTP client dependency: the engine
-/// already links AppKit and CoreGraphics, and one more crate of async machinery
-/// for a 2 KB JSON fetch is not a trade worth making. `curl` ships with macOS.
+/// Fetches a URL as text, with a hard timeout, falling back to a mirror.
 fn fetch(url: &str, timeout: Duration) -> Result<String> {
+    match curl_to_string(url, timeout) {
+        Ok(body) => Ok(body),
+        Err(primary_error) => {
+            // Only GitHub-hosted URLs have a mirror; retrying an already-mirrored
+            // or third-party URL would just double the latency before failing.
+            let Some(mirrored) = mirror_for(url) else {
+                return Err(primary_error);
+            };
+            curl_to_string(&mirrored, timeout).map_err(|mirror_error| {
+                Error::InvalidState(format!(
+                    "{primary_error}; the mirror also failed: {mirror_error}"
+                ))
+            })
+        }
+    }
+}
+
+/// Rewrites a GitHub URL to its mirrored form, or `None` if it is not one.
+///
+/// Restricted to hosts this project actually publishes to, so a feed that pointed
+/// somewhere unexpected cannot have its traffic routed through a third party.
+fn mirror_for(url: &str) -> Option<String> {
+    let hosts = [
+        "https://github.com/",
+        "https://objects.githubusercontent.com/",
+        "https://raw.githubusercontent.com/",
+    ];
+    hosts
+        .iter()
+        .find(|host| url.starts_with(**host))
+        .map(|_| format!("{MIRROR_PREFIX}{url}"))
+}
+
+/// One `curl` invocation, mapped to a message a user can act on.
+fn curl_to_string(url: &str, timeout: Duration) -> Result<String> {
     let output = Command::new("/usr/bin/curl")
         .args([
             "--fail",
@@ -359,7 +464,28 @@ fn fetch(url: &str, timeout: Duration) -> Result<String> {
 }
 
 /// Downloads a URL to `destination`, replacing any existing file.
-fn download(url: &str, destination: &Path) -> Result<()> {
+///
+/// Falls back to the mirror on the same terms as [`fetch`], because a release
+/// asset is the one download a user cannot work around themselves.
+pub fn download(url: &str, destination: &Path) -> Result<()> {
+    match curl_to_file(url, destination) {
+        Ok(()) => Ok(()),
+        Err(primary_error) => {
+            let Some(mirrored) = mirror_for(url) else {
+                return Err(primary_error);
+            };
+            curl_to_file(&mirrored, destination).map_err(|mirror_error| {
+                Error::InvalidState(format!(
+                    "{primary_error}; the mirror also failed: {mirror_error}"
+                ))
+            })
+        }
+    }
+}
+
+/// One `curl` download. Removes a partial file so a later retry cannot resume onto
+/// corrupt bytes.
+fn curl_to_file(url: &str, destination: &Path) -> Result<()> {
     let status = Command::new("/usr/bin/curl")
         .args([
             "--fail",
@@ -383,10 +509,6 @@ fn download(url: &str, destination: &Path) -> Result<()> {
     }
     Ok(())
 }
-
-// ---------------------------------------------------------------------------
-// Verification
-// ---------------------------------------------------------------------------
 
 /// Computes a file's SHA-256, streaming so a large archive does not sit in memory.
 ///
@@ -775,6 +897,37 @@ fn json_bool(json: &str, key: &str) -> Option<bool> {
     }
 }
 
+/// Reads a top-level array of strings, e.g. `"revoked": ["0.2.0", "0.2.1"]`.
+///
+/// The manifest is otherwise scalar, so this is the one place a nested value is
+/// parsed. A malformed array yields an empty list rather than an error: refusing
+/// to read a release because its revocation list was malformed would break
+/// updating, which is a worse outcome than missing a revocation.
+fn json_string_array(json: &str, key: &str) -> Vec<String> {
+    let Some(raw) = json_raw_value(json, key) else {
+        return Vec::new();
+    };
+    let trimmed = raw.trim();
+    let Some(inner) = trimmed
+        .strip_prefix('[')
+        .and_then(|rest| rest.strip_suffix(']'))
+    else {
+        return Vec::new();
+    };
+
+    let mut out = Vec::new();
+    for element in inner.split(',') {
+        let element = element.trim();
+        if let Some(value) = element
+            .strip_prefix('"')
+            .and_then(|rest| rest.strip_suffix('"'))
+        {
+            out.push(unescape_json(value));
+        }
+    }
+    out
+}
+
 /// Returns the raw token following `"key":`, up to the end of the value.
 fn json_raw_value(json: &str, key: &str) -> Option<String> {
     let needle = format!("\"{key}\"");
@@ -807,6 +960,33 @@ fn json_raw_value(json: &str, key: &str) -> Option<String> {
                 }
             }
             return None;
+        }
+
+        // An array: consume to the matching bracket, since a comma inside it is
+        // not a delimiter.
+        if rest.starts_with('[') {
+            let mut depth = 0usize;
+            let mut in_string = false;
+            let mut escaped = false;
+            for (index, ch) in rest.char_indices() {
+                if escaped {
+                    escaped = false;
+                    continue;
+                }
+                match ch {
+                    '\\' if in_string => escaped = true,
+                    '"' => in_string = !in_string,
+                    '[' if !in_string => depth += 1,
+                    ']' if !in_string => {
+                        depth -= 1;
+                        if depth == 0 {
+                            return Some(rest[..=index].to_owned());
+                        }
+                    }
+                    _ => {}
+                }
+            }
+            return Some(rest.to_owned());
         }
 
         // A number, boolean or null: read to the next delimiter.
@@ -985,11 +1165,110 @@ mod tests {
     }
 
     #[test]
+    fn parses_a_revocation_list() {
+        let json = format!(
+            r#"{{"version":"0.2.0","download_url":"https://e.com/a.zip","sha256":"{}","revoked":["0.1.0","0.1.1"]}}"#,
+            "d".repeat(64)
+        );
+        let manifest = ReleaseManifest::from_json(&json).expect("should parse");
+        assert_eq!(manifest.revoked, vec!["0.1.0", "0.1.1"]);
+        assert!(manifest.is_revoked("0.1.0"));
+        assert!(manifest.is_revoked("0.1.1"));
+        assert!(!manifest.is_revoked("0.2.0"));
+    }
+
+    #[test]
+    fn revocation_compares_numerically() {
+        let json = format!(
+            r#"{{"version":"0.2.0","download_url":"https://e.com/a.zip","sha256":"{}","revoked":["0.2"]}}"#,
+            "e".repeat(64)
+        );
+        let manifest = ReleaseManifest::from_json(&json).unwrap();
+        // "0.2" and "0.2.0" are the same version, so both must match.
+        assert!(manifest.is_revoked("0.2.0"));
+        assert!(manifest.is_revoked("v0.2.0"));
+        assert!(!manifest.is_revoked("0.2.1"));
+        assert!(!manifest.is_revoked("0.20.0"));
+    }
+
+    #[test]
+    fn a_missing_or_malformed_revocation_list_is_empty_not_fatal() {
+        for revoked in [
+            "",
+            r#","revoked":[]"#,
+            r#","revoked":"oops""#,
+            r#","revoked":[1,2]"#,
+        ] {
+            let json = format!(
+                r#"{{"version":"0.2.0","download_url":"https://e.com/a.zip","sha256":"{}"{revoked}}}"#,
+                "f".repeat(64)
+            );
+            let manifest = ReleaseManifest::from_json(&json)
+                .unwrap_or_else(|e| panic!("should still parse with revoked={revoked:?}: {e}"));
+            assert!(
+                manifest.revoked.is_empty(),
+                "revoked={revoked:?} produced {:?}",
+                manifest.revoked
+            );
+        }
+    }
+
+    #[test]
+    fn revoked_status_is_distinct_from_available() {
+        let manifest = ReleaseManifest {
+            version: "0.2.0".into(),
+            tag: "v0.2.0".into(),
+            download_url: "https://e.com/a.zip".into(),
+            sha256: "a".repeat(64),
+            size: 1,
+            minimum_system_version: None,
+            prerelease: false,
+            notes: String::new(),
+            published_at: None,
+            revoked: vec!["0.1.0".into()],
+        };
+
+        let forced = UpdateStatus::Revoked {
+            current: "0.1.0".into(),
+            manifest: Box::new(manifest.clone()),
+        };
+        assert!(forced.is_forced());
+        assert!(forced.has_update());
+        assert!(forced.manifest().is_some());
+
+        let optional = UpdateStatus::Available(Box::new(manifest));
+        assert!(
+            !optional.is_forced(),
+            "a normal update must not block the app"
+        );
+        assert!(optional.has_update());
+    }
+
+    #[test]
+    fn mirror_rewriting_is_limited_to_project_hosts() {
+        // GitHub URLs get mirrored.
+        assert_eq!(
+            mirror_for("https://github.com/yxxbc/Maccv/releases/download/v1/a.dmg"),
+            Some(format!(
+                "{MIRROR_PREFIX}https://github.com/yxxbc/Maccv/releases/download/v1/a.dmg"
+            ))
+        );
+        assert!(mirror_for("https://objects.githubusercontent.com/x").is_some());
+        assert!(mirror_for("https://raw.githubusercontent.com/x").is_some());
+
+        // Anything else is left alone, so a feed pointing elsewhere cannot have
+        // its traffic routed through a third party.
+        assert!(mirror_for("https://evil.example.com/a.dmg").is_none());
+        assert!(mirror_for("http://github.com/insecure").is_none());
+        assert!(mirror_for("https://yxxbc.github.io/Maccv/latest.json").is_none());
+    }
+
+    #[test]
     fn check_failure_is_reported_not_panicked() {
         // An unreachable host must degrade to a status, never a crash.
         let status = check_for_update(
             "0.1.0",
-            "https://127.0.0.1:9/definitely-not-listening.json",
+            Some("https://127.0.0.1:9/definitely-not-listening.json"),
             UpdateChannel::Stable,
         );
         match status {

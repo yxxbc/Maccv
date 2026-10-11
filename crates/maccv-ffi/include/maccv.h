@@ -295,7 +295,8 @@ typedef struct MaccvRedacted {
  */
 typedef struct MaccvUpdateResult {
   /**
-   * 0 = up to date, 1 = update available, 2 = check failed.
+   * 0 = up to date, 1 = update available, 2 = check failed, 3 = current version
+   * has been revoked and must be replaced.
    */
   uint8_t status;
   /**
@@ -322,6 +323,11 @@ typedef struct MaccvUpdateResult {
    * Why the check failed, when it did.
    */
   struct MaccvString reason;
+  /**
+   * Whether the running version is revoked, in which case the UI must block on
+   * the update rather than offering it.
+   */
+  bool forced;
 } MaccvUpdateResult;
 
 /**
@@ -764,6 +770,19 @@ bool maccv_redacted_should_skip_recording(const struct MaccvRedacted *redacted);
 enum MaccvError maccv_update_check(const char *current_version, const char *manifest_url, enum MaccvUpdateChannel channel, struct MaccvUpdateResult **out);
 
 /**
+ * Whether the running version has been revoked and the app must not keep running
+ * until it is replaced.
+ *
+ * This is separate from the status code so a caller cannot accidentally treat a
+ * mandatory update as an ordinary one by checking only `status != OK`.
+ *
+ * # Safety
+ *
+ * `result` must be live from [`maccv_update_check`].
+ */
+bool maccv_update_result_is_forced(const struct MaccvUpdateResult *result);
+
+/**
  * 0 = up to date, 1 = update available, 2 = check failed.
  *
  * # Safety
@@ -925,6 +944,20 @@ struct MaccvString maccv_staged_update_reason(const struct MaccvStagedUpdate *st
  * `staged` must come from [`maccv_update_download`] and not be used again.
  */
 void maccv_staged_update_free(struct MaccvStagedUpdate *staged);
+
+/**
+ * Downloads and verifies the update described by a check result.
+ *
+ * Preferred over [`maccv_update_download`] because it takes the result directly:
+ * the manifest is rebuilt from the same fields the check returned, so nothing can
+ * diverge between what was offered and what is verified.
+ *
+ * # Safety
+ *
+ * `result` must be live from [`maccv_update_check`]; `staging_dir` must be a
+ * NUL-terminated UTF-8 string; `out` must be valid and writable.
+ */
+enum MaccvError maccv_update_download_result(const struct MaccvUpdateResult *result, const char *staging_dir, struct MaccvStagedUpdate **out);
 
 /**
  * Whether a path carries the `com.apple.quarantine` attribute.

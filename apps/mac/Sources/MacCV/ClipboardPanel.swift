@@ -146,11 +146,15 @@ struct ClipboardPanel: View {
         .padding(.vertical, 6)
     }
 
-    /// Pluralised with a real plural rule rather than string concatenation, so a
-    /// language with more than two forms is not baked into the call site.
+    /// Pluralised through the catalog's own rule.
+    ///
+    /// `^[%lld clip](inflect: true)` asks the system to inflect, which is the only
+    /// way to be correct in a language whose plural categories are not English's
+    /// one/other — Simplified Chinese has a single form, and hard-coding "clips"
+    /// would show up as wrong the moment a third language is added.
     private var clipCountLabel: String {
         String(
-            format: String(localized: "panel.clipCount.one"),
+            format: String(localized: "panel.clipCount.format"),
             store.history.count
         )
     }

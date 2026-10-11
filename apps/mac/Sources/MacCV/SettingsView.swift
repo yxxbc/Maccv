@@ -298,6 +298,21 @@ private struct UpdatesSettingsTab: View {
                 checkAgainButton
             }
 
+        case .revoked(let update, let current):
+            // The running build was withdrawn. The blocking window handles the
+            // interaction; this is what the user sees once they ask to update.
+            VStack(alignment: .leading, spacing: 8) {
+                Label(
+                    String(format: String(localized: "updates.revoked"), current, update.version),
+                    systemImage: "exclamationmark.octagon.fill"
+                )
+                .foregroundStyle(.red)
+                Text(String(localized: "updates.revoked.detail"))
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+                downloadRow(update)
+            }
+
         case .available(let update):
             VStack(alignment: .leading, spacing: 8) {
                 Label(
@@ -468,5 +483,7 @@ enum AppLinks {
     static let source = URL(string: "https://yxxbc.github.io/Maccv/source/")!
     static let changelog = URL(string: "https://yxxbc.github.io/Maccv/changelog/")!
     static let issues = URL(string: "https://github.com/yxxbc/Maccv/issues")!
+    static let releases = URL(string: "https://github.com/yxxbc/Maccv/releases/latest")!
     static let releaseFeed = "https://yxxbc.github.io/Maccv/latest.json"
+    static let previewFeed = "https://yxxbc.github.io/Maccv/preview.json"
 }

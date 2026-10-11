@@ -30,20 +30,30 @@ enum UpdatePhase: Equatable {
     /// The running version is current.
     case upToDate(current: String)
     case available(AvailableUpdate)
+    /// The running version has been withdrawn, and `update` replaces it.
+    ///
+    /// A case of its own rather than a flag on `available`, because the UI
+    /// obligations are entirely different: this one blocks the app.
+    case revoked(update: AvailableUpdate, current: String)
     case failed(reason: String)
 
     var isBusy: Bool { self == .checking }
 
     /// Whether a newer release is waiting.
     var hasUpdate: Bool {
-        if case .available = self { return true }
-        return false
+        switch self {
+        case .available, .revoked: true
+        default: false
+        }
     }
 
     /// The available update, if there is one.
     var update: AvailableUpdate? {
-        if case .available(let update) = self { return update }
-        return nil
+        switch self {
+        case .available(let update): update
+        case .revoked(let update, _): update
+        default: nil
+        }
     }
 }
 
@@ -84,7 +94,17 @@ final class UpdateModel {
         Bundle.main.object(forInfoDictionaryKey: "CFBundleVersion") as? String ?? "1"
     }
 
-    /// Runs a check. Uses the official feed unless overridden.
+    /// Whether the running version has been revoked.
+    ///
+    /// When true the app shows a blocking window instead of the panel. This is the
+    /// only state in which MacCV refuses to be used, so it is derived from the
+    /// engine's explicit `forced` flag rather than inferred from a version number.
+    var isRevoked: Bool {
+        if case .revoked = phase { return true }
+        return false
+    }
+
+    /// Runs a check. Uses the channel's official feed unless overridden.
     ///
     /// Safe to call from a timer: a check downloads nothing and writes nothing.
     func check(manifestURL: String? = nil) async {
@@ -177,18 +197,22 @@ enum UpdateCheckBridge {
         // values have been copied out.
         defer { maccv_update_result_free(out) }
 
+        let update = AvailableUpdate(
+            version: stringToSwift(maccv_update_result_version(out)),
+            downloadURL: stringToSwift(maccv_update_result_download_url(out)),
+            sha256: stringToSwift(maccv_update_result_sha256(out)),
+            notes: stringToSwift(maccv_update_result_notes(out))
+        )
+
+        // Read the forced flag rather than inferring it from the status, so the
+        // decision to block the app comes from the feed and not from a guess here.
+        if maccv_update_result_is_forced(out) {
+            return .revoked(update: update, current: currentVersion)
+        }
+
         switch maccv_update_result_status(out) {
-        case 1:
-            return .available(
-                AvailableUpdate(
-                    version: stringToSwift(maccv_update_result_version(out)),
-                    downloadURL: stringToSwift(maccv_update_result_download_url(out)),
-                    sha256: stringToSwift(maccv_update_result_sha256(out)),
-                    notes: stringToSwift(maccv_update_result_notes(out))
-                )
-            )
-        case 0:
-            return .upToDate(current: currentVersion)
+        case 1: return .available(update)
+        case 0: return .upToDate(current: currentVersion)
         default:
             let reason = stringToSwift(maccv_update_result_reason(out))
             return .failed(reason: reason.isEmpty ? "unknown error" : reason)
@@ -198,8 +222,16 @@ enum UpdateCheckBridge {
 
 /// Wraps `maccv_update_download`.
 enum UpdateDownloadBridge {
+    /// Downloads from the values the check returned.
+    ///
+    /// The manifest is reconstructed by the engine from the same result object, so
+    /// what gets verified cannot drift from what was offered.
     static func run(update: AvailableUpdate, stagingDirectory: String) -> DownloadPhase {
         var out: UnsafeMutablePointer<MaccvStagedUpdate>?
+
+        // The digest handed over here is the one the feed published, and the engine
+        // verifies the artifact against it before anything else happens — so
+        // passing the fields individually cannot skip a check.
         let status = update.downloadURL.withCString { url in
             update.sha256.withCString { sha in
                 update.version.withCString { version in
