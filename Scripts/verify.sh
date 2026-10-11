@@ -159,16 +159,20 @@ stage "clipboard content is never persisted" \
 stage "READMEs agree on the facts" \
   python3 Scripts/checks/readme_parity.py
 
-stage "README images exist" \
+stage "README and site images exist" \
   bash -c '
     set -e
-    for image in assets/preview-en.png assets/preview-zh.png assets/logo.png assets/social-preview.png; do
+    images="assets/preview-en.png assets/preview-zh.png assets/preview-hero-en.png assets/preview-hero-zh.png assets/logo.png assets/social-preview.png docs/preview-hero-en.png docs/preview-hero-zh.png"
+    count=0
+    for image in $images; do
       [ -s "$image" ] || { echo "missing or empty: $image"; exit 1; }
-      # A README image is fetched on every page view, so size is a real cost.
+      # These load on every page view of the repository or the site, so size is a real
+      # cost to a reader rather than a detail of the build.
       kb=$(( $(stat -f%z "$image") / 1024 ))
       [ "$kb" -lt 800 ] || { echo "$image is ${kb} KB, over the 800 KB budget"; exit 1; }
+      count=$((count + 1))
     done
-    echo "4 images present and within budget"
+    echo "$count images present and within budget"
   '
 
 stage "AGENTS.md matches the repository" \

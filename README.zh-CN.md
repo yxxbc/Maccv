@@ -21,6 +21,7 @@ macOS 菜单栏剪贴板管理器。它保留一次复制携带的**每一种格
 
 [![CI](https://github.com/yxxbc/Maccv/actions/workflows/ci.yml/badge.svg)](https://github.com/yxxbc/Maccv/actions/workflows/ci.yml)
 [![Release](https://img.shields.io/github/v/release/yxxbc/Maccv?include_prereleases&sort=semver&color=6D4AE8)](https://github.com/yxxbc/Maccv/releases)
+[![Downloads](https://img.shields.io/github/downloads/yxxbc/Maccv/total?color=369eff&labelColor=black&logo=github&logoColor=white&label=Downloads)](https://github.com/yxxbc/Maccv/releases)
 [![License](https://img.shields.io/badge/license-Apache--2.0-blue.svg)](LICENSE)
 [![macOS](https://img.shields.io/badge/macOS-15%2B-black.svg)](#环境要求)
 [![Universal](https://img.shields.io/badge/架构-Apple%20芯片%20%2B%20Intel-black.svg)](#下载)

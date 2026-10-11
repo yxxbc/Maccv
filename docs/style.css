@@ -120,22 +120,39 @@ header {
 
 /* ---------- hero ---------- */
 
+/* The hero is two columns: the claim on the left, the panel on the right.
+   Side by side because the screenshot is the most persuasive thing on the page, and
+   putting it below the fold asks a visitor to scroll to see it. */
 .hero {
-  padding: 76px 0 60px;
-  text-align: center;
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(0, 0.92fr);
+  gap: 56px;
+  align-items: center;
+  padding: 72px 0 64px;
+}
+
+.hero-copy { text-align: left; }
+
+.hero-shot img {
+  display: block;
+  width: 100%;
+  height: auto;
+  border-radius: var(--radius);
+  /* The rendered image carries its own backdrop; the shadow only lifts it off the page. */
+  box-shadow: 0 30px 70px -34px rgba(0, 0, 0, 0.7);
 }
 
 .hero img.mark {
-  width: 116px;
-  height: 116px;
-  border-radius: 26px;
+  width: 92px;
+  height: 92px;
+  border-radius: 21px;
 }
 
 .hero h1 {
-  font-size: clamp(38px, 6vw, 58px);
+  font-size: clamp(34px, 4.4vw, 52px);
   line-height: 1.08;
   letter-spacing: -0.025em;
-  margin: 24px 0 0;
+  margin: 20px 0 0;
   font-weight: 700;
   background: linear-gradient(120deg, var(--text), var(--violet-light));
   -webkit-background-clip: text;
@@ -144,18 +161,17 @@ header {
 }
 
 .hero .tagline {
-  font-size: clamp(19px, 2.6vw, 23px);
+  font-size: clamp(18px, 2.1vw, 21px);
   color: var(--text-dim);
-  margin: 16px auto 0;
+  margin: 16px 0 0;
   max-width: 34ch;
 }
 
 .hero .actions {
   display: flex;
   gap: 12px;
-  justify-content: center;
   flex-wrap: wrap;
-  margin-top: 32px;
+  margin-top: 30px;
 }
 
 .btn {
@@ -185,9 +201,27 @@ header {
 }
 
 .hero .meta {
-  margin-top: 18px;
+  margin-top: 16px;
   font-size: 14px;
   color: var(--text-faint);
+}
+
+/* Below this the two columns would each be too narrow for the panel to stay legible,
+   so the hero stacks — copy first, since that is what a reader needs before scrolling. */
+@media (max-width: 860px) {
+  .hero {
+    grid-template-columns: 1fr;
+    gap: 40px;
+    padding: 52px 0 44px;
+    text-align: center;
+  }
+
+  .hero-copy { text-align: center; }
+  .hero h1 { margin-left: auto; margin-right: auto; }
+  .hero .tagline { margin-left: auto; margin-right: auto; }
+  .hero .actions { justify-content: center; }
+  /* The panel is the taller element; on a phone it should not push the copy off screen. */
+  .hero-shot { max-width: 460px; margin: 0 auto; }
 }
 
 /* ---------- sections ---------- */
@@ -243,6 +277,30 @@ section .lead {
 
 .pillar ul { margin: 12px 0 0; padding-left: 18px; color: var(--text-dim); font-size: 15px; }
 .pillar li { margin: 5px 0; }
+
+/* ---------- screenshot ---------- */
+
+.shot {
+  position: relative;
+  margin: 8px 0 4px;
+  border-radius: var(--radius);
+  overflow: hidden;
+  /* The rendered image already carries its own backdrop; this is only the frame, so the
+     border stays quiet and the corners match the panel's own radius. */
+  border: 1px solid var(--border);
+  box-shadow: 0 24px 60px -30px rgba(0, 0, 0, 0.65);
+  line-height: 0;
+}
+
+.shot img {
+  display: block;
+  width: 100%;
+  height: auto;
+}
+
+@media (prefers-color-scheme: light) {
+  .shot { box-shadow: 0 20px 48px -28px rgba(20, 20, 40, 0.35); }
+}
 
 /* ---------- metrics ---------- */
 

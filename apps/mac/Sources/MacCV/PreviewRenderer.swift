@@ -145,7 +145,23 @@ enum PreviewRenderer {
         case dark
     }
 
-    static func run(outputPath: String, language: String?, appearance: Appearance) -> Int32 {
+    /// How much the canvas is cropped around the panel.
+    ///
+    /// A README shows the image at full width, so the padded version reads well there. A
+    /// hero image sits beside the headline at roughly half that, and at 60% padding the
+    /// panel's 12pt rows shrink to about 6pt — legible in a design file, not on a screen.
+    /// `tight` is for the website.
+    enum Framing: String {
+        case padded
+        case tight
+    }
+
+    static func run(
+        outputPath: String,
+        language: String?,
+        appearance: Appearance,
+        framing: Framing = .padded
+    ) -> Int32 {
         // Applying a language before the first accessor runs makes the catalog resolve
         // it for this process, which is the only way to render a specific language
         // without a relaunch.
@@ -185,14 +201,10 @@ enum PreviewRenderer {
                 panel,
                 size: NSSize(width: 380, height: 480),
                 appearance: appearance
-            )
+            ),
+            let composed = compose(panel: panelImage, framing: framing)
         else {
             FileHandle.standardError.write(Data("could not render the panel\n".utf8))
-            return 1
-        }
-
-        guard let composed = compose(panel: panelImage) else {
-            FileHandle.standardError.write(Data("could not compose the backdrop\n".utf8))
             return 1
         }
 
@@ -224,11 +236,23 @@ enum PreviewRenderer {
     /// real desktop wallpaper would commit a personal desktop to the repository, and
     /// shipping someone else's wallpaper would be a licensing problem. Generating it
     /// gives the same depth with no such cost.
-    private static func compose(panel: NSImage) -> NSImage? {
-        /// Chosen so the panel sits comfortably with room around it, matching the
-        /// aspect ratio a README can display at a reasonable width.
-        let canvasSize = NSSize(width: 900, height: 620)
+    private static func compose(panel: NSImage, framing: Framing) -> NSImage? {
         let panelSize = panel.size
+
+        // The canvas is a multiple of the panel's width, so the same number controls both
+        // how much backdrop surrounds it and how large the panel appears when the image
+        // is scaled to a fixed display width.
+        let canvasSize: NSSize
+        switch framing {
+        case .padded:
+            // 900/380 ≈ 2.4× — the panel occupies about 42% of the width, which reads well
+            // at the full width a README gives it.
+            canvasSize = NSSize(width: 900, height: 620)
+        case .tight:
+            // 1.55× — the panel occupies about two thirds, so at half the width its rows
+            // stay near their designed size instead of halving into illegibility.
+            canvasSize = NSSize(width: panelSize.width * 1.55, height: panelSize.height * 1.35)
+        }
 
         guard let backdrop = capture(BackdropView(), size: canvasSize) else { return nil }
 

@@ -30,10 +30,18 @@ while [[ $# -gt 0 ]]; do
   esac
 done
 
-# Rendered at 2x and downsampled. The raw capture is 1800×1240 and about 2.2 MB, far too
-# heavy for an image that loads on every page view of the repository — this is the width
-# a README column actually displays, and rendering at 2x first keeps it sharp on Retina.
-TARGET_WIDTH=1000
+# Two framings, because the two places the image appears need different ones:
+#
+#   padded — for a README, shown at the full width of the column. A generous backdrop
+#            reads well there.
+#   tight  — for the website hero, where the panel sits beside the headline and is
+#            therefore about half as wide. At the padded framing the panel's 12pt rows
+#            shrink to roughly 6pt, which is legible in a design file and not on a screen.
+#
+# Both are rendered at 2x and downsampled: the raw capture is far too heavy to ship
+# (2.2 MB), and rendering at 2x first keeps the result sharp on a Retina display.
+README_WIDTH=1000
+HERO_WIDTH=760
 
 BUILD_DIR="dist/preview-$ARCH"
 echo "==> building the app to render from"
@@ -50,24 +58,35 @@ mkdir -p assets
 # Each language is rendered by its own process: Foundation resolves the interface
 # language once at launch, so one process cannot draw both.
 render() {
-  local language="$1" output="$2" label="$3"
+  local language="$1" output="$2" width="$3" framing="$4" label="$5"
   local raw="${output%.png}-2x.png"
 
-  echo "==> rendering $label ($language)"
-  # `--render-preview <path> <language> <appearance>`; exits without starting the UI.
-  "$BINARY" --render-preview "$raw" "$language" dark 2>/dev/null
+  echo "==> $label ($language, $framing)"
+  # `--render-preview <path> <language> <appearance> <framing>`; exits without starting the UI.
+  "$BINARY" --render-preview "$raw" "$language" dark "$framing" 2>/dev/null
 
   if [[ ! -s "$raw" ]]; then
     echo "error: $raw was not produced" >&2
     exit 1
   fi
 
-  python3 "$REPO_ROOT/Scripts/dmg/check-preview.py" "$raw" "$output" "$TARGET_WIDTH"
+  python3 "$REPO_ROOT/Scripts/dmg/check-preview.py" "$raw" "$output" "$width"
   rm -f "$raw"
 }
 
-render "en" "assets/preview-en.png" "English"
-render "zh-Hans" "assets/preview-zh.png" "简体中文"
+for language in en zh-Hans; do
+  case "$language" in
+    en) suffix="en"; label="English" ;;
+    zh-Hans) suffix="zh"; label="简体中文" ;;
+  esac
+
+  render "$language" "assets/preview-$suffix.png" "$README_WIDTH" padded "$label (README)"
+  render "$language" "assets/preview-hero-$suffix.png" "$HERO_WIDTH" tight "$label (site hero)"
+done
+
+# The site serves its own copies: a relative path from docs/ cannot reach assets/.
+cp assets/preview-hero-en.png docs/preview-hero-en.png
+cp assets/preview-hero-zh.png docs/preview-hero-zh.png
 
 echo
-ls -lh assets/preview-*.png | awk '{print "  " $9 "  " $5}'
+ls -lh assets/preview-*.png docs/preview-hero-*.png | awk '{print "  " $9 "  " $5}'

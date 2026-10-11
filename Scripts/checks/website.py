@@ -42,6 +42,37 @@ def structure(path: pathlib.Path):
     )
 
 
+# Each page must show its own language's hero, and the file must resolve from where the
+# page says it is — the Chinese page references `../preview-hero-zh.png`, which is a
+# different location from the English page's. Joining the name onto the page's own
+# directory would look in the wrong place and report a false failure.
+HERO_IMAGES = {
+    "index.html": "preview-hero-en.png",
+    "zh/index.html": "preview-hero-zh.png",
+}
+
+for relative, image in HERO_IMAGES.items():
+    page = docs / relative
+    text = page.read_text(encoding="utf-8")
+    if image not in text:
+        print(f"{relative} does not reference its hero image ({image})", file=sys.stderr)
+        sys.exit(1)
+    # Resolve the reference the way a browser would.
+    import re
+
+    match = re.search(rf'src="([^"]*{re.escape(image)})"', text)
+    if not match:
+        print(f"{relative}: could not find the src for {image}", file=sys.stderr)
+        sys.exit(1)
+    resolved = (page.parent / match.group(1)).resolve()
+    if not resolved.exists():
+        print(
+            f"{relative} references {match.group(1)}, which resolves to "
+            f"{resolved} and does not exist",
+            file=sys.stderr,
+        )
+        sys.exit(1)
+
 en = structure(docs / "index.html")
 zh = structure(docs / "zh" / "index.html")
 if en != zh:
@@ -50,4 +81,7 @@ if en != zh:
     print(f"  zh: {zh}", file=sys.stderr)
     sys.exit(1)
 
-print(f"  {len(list(docs.rglob('*.html')))} pages, links resolve, languages in step")
+print(
+    f"  {len(list(docs.rglob('*.html')))} pages, links resolve, "
+    "hero images present, languages in step"
+)

@@ -43,14 +43,26 @@
 <main>
 
   <div class="wrap hero">
-    <img class="mark" src="logo.png" alt="MacCV icon">
-    <h1>A fast, light,<br>private clipboard</h1>
-    <p class="tagline">Native macOS pasteboard fidelity, with a Rust engine — and the option to paste without the clipboard at all.</p>
-    <div class="actions">
-      <a class="btn primary" href="https://github.com/yxxbc/Maccv/releases/latest">Download for macOS</a>
-      <a class="btn secondary" href="https://github.com/yxxbc/Maccv">View source</a>
+    <div class="hero-copy">
+      <img class="mark" src="logo.png" alt="MacCV icon">
+      <h1>A fast, light,<br>private clipboard</h1>
+      <p class="tagline">Native macOS pasteboard fidelity, with a Rust engine — and the option to paste without the clipboard at all.</p>
+      <div class="actions">
+        <a class="btn primary" href="https://github.com/yxxbc/Maccv/releases/latest">Download for macOS</a>
+        <a class="btn secondary" href="https://github.com/yxxbc/Maccv">View source</a>
+      </div>
+      <p class="meta">Universal binary · Requires macOS 15 or later · Apache-2.0</p>
     </div>
-    <p class="meta">Universal binary · Requires macOS 27 or later · Apache-2.0</p>
+
+    <!--
+      Rendered by `Scripts/render-preview.sh` from the app's own view code, not
+      screenshotted, so it cannot show a UI that no longer exists. Beside the headline
+      rather than below it: the panel is the most persuasive thing here, and a visitor
+      should not have to scroll to see it.
+    -->
+    <div class="hero-shot">
+      <img src="preview-hero-en.png" alt="The MacCV panel: a rich-text entry, an image, a three-file copy, and an API key shown masked" width="760" height="836">
+    </div>
   </div>
 
   <section id="why" class="wrap">
@@ -91,6 +103,7 @@
         </ul>
       </div>
     </div>
+
 
     <div class="metrics">
       <div class="metric"><div class="value">0.53 µs</div><div class="label">Change detection</div></div>

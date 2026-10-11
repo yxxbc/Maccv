@@ -38,7 +38,15 @@ struct MacCVApp: App {
             let appearance = CommandLine.arguments.count > index + 3
                 ? PreviewRenderer.Appearance(rawValue: CommandLine.arguments[index + 3]) ?? .dark
                 : .dark
-            exit(PreviewRenderer.run(outputPath: path, language: language, appearance: appearance))
+            let framing = CommandLine.arguments.count > index + 4
+                ? PreviewRenderer.Framing(rawValue: CommandLine.arguments[index + 4]) ?? .padded
+                : .padded
+            exit(PreviewRenderer.run(
+                outputPath: path,
+                language: language,
+                appearance: appearance,
+                framing: framing
+            ))
         }
 
         let settings = AppSettings.load()

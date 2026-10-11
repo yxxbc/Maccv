@@ -43,14 +43,25 @@
 <main>
 
   <div class="wrap hero">
-    <img class="mark" src="../logo.png" alt="MacCV 图标">
-    <h1>快、轻、<br>私密的剪贴板</h1>
-    <p class="tagline">原生 macOS 剪贴板保真，Rust 引擎驱动 —— 并且可以选择完全不经过剪贴板来粘贴。</p>
-    <div class="actions">
-      <a class="btn primary" href="https://github.com/yxxbc/Maccv/releases/latest">下载 macOS 版</a>
-      <a class="btn secondary" href="https://github.com/yxxbc/Maccv">查看源码</a>
+    <div class="hero-copy">
+      <img class="mark" src="../logo.png" alt="MacCV 图标">
+      <h1>快、轻、<br>私密的剪贴板</h1>
+      <p class="tagline">原生 macOS 剪贴板保真，Rust 引擎驱动 —— 并且可以选择完全不经过剪贴板来粘贴。</p>
+      <div class="actions">
+        <a class="btn primary" href="https://github.com/yxxbc/Maccv/releases/latest">下载 macOS 版</a>
+        <a class="btn secondary" href="https://github.com/yxxbc/Maccv">查看源码</a>
+      </div>
+      <p class="meta">通用二进制 · 需要 macOS 15 或更高版本 · Apache-2.0</p>
     </div>
-    <p class="meta">通用二进制 · 需要 macOS 27 或更高版本 · Apache-2.0</p>
+
+    <!--
+      由 `Scripts/render-preview.sh` 从应用自己的视图代码渲染，而非截图，
+      因此不可能展示一个已经不存在的界面。放在标题右侧而不是下方：
+      面板是这里最有说服力的东西，不应该让访客滚动才能看到。
+    -->
+    <div class="hero-shot">
+      <img src="../preview-hero-zh.png" alt="MacCV 面板：富文本、图片、三个文件的复制，以及打码后的 API 密钥" width="760" height="836">
+    </div>
   </div>
 
   <section id="why" class="wrap">
@@ -91,6 +102,7 @@
         </ul>
       </div>
     </div>
+
 
     <div class="metrics">
       <div class="metric"><div class="value">0.53 µs</div><div class="label">变更检测</div></div>

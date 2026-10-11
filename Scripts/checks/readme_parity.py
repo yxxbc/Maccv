@@ -37,6 +37,7 @@ SHARED_FACTS = [
     # The preview differs by language on purpose — a Chinese README showing an English
     # panel would read as an untranslated app.
     ("preview image", "assets/preview-en.png", "assets/preview-zh.png"),
+    ("downloads badge", "github/downloads/yxxbc/Maccv/total", "github/downloads/yxxbc/Maccv/total"),
 ]
 
 problems: list[str] = []
