@@ -71,8 +71,8 @@ targets:
         GENERATE_INFOPLIST_FILE: NO
         # --- end Info.plist ---------------------------------------------------
 
-        MARKETING_VERSION: "0.1.0"
-        CURRENT_PROJECT_VERSION: "1"
+        MARKETING_VERSION: "0.1.1"
+        CURRENT_PROJECT_VERSION: "20261011"
         # Link the Rust engine and the frameworks AppKit needs from Rust.
         LIBRARY_SEARCH_PATHS:
           - $(MACCV_ROOT)/target/maccv-apple

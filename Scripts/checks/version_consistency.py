@@ -52,51 +52,13 @@ if "$(MARKETING_VERSION)" in plist_text:
 else:
     records["Info.plist substitutes MARKETING_VERSION"] = "(no substitution)"
 
-# If a build exists, check what Xcode actually produced — that is what a user reads.
-#
-# Only the most recently modified build is checked. Builds accumulate in /tmp and
-# dist/, and an older artifact would report the state of the source at the time it was
-# built rather than now — a false failure if the fix came later, a false pass if the
-# regression did. Newest is the only one that reflects the current tree.
-candidates = list(pathlib.Path("/tmp").glob("*/MacCV.app/Contents/Info.plist"))
-candidates += list((root / "dist").glob("*/MacCV.app/Contents/Info.plist"))
-
-# Informational only. verify.sh runs this stage *before* the app is built, so the
-# absence of a build is the normal case there and must not read as a disagreement —
-# it was doing exactly that, failing the stage on a clean tree.
-informational: list[str] = []
-if not candidates:
-    informational.append("no built bundle found (the check ran before the app build)")
-
-built: list[pathlib.Path] = []
-if candidates:
-    newest = max(candidates, key=lambda path: path.stat().st_mtime)
-    built = [newest]
-
-for plist in built:
-    label = plist.parents[2].name
-    try:
-        info = plistlib.loads(plist.read_bytes())
-    except Exception as error:  # noqa: BLE001 - any read failure is reported, not raised
-        records[f"plist {label}"] = f"unreadable: {error}"
-        continue
-
-    records[f"plist {label} version"] = info.get("CFBundleShortVersionString", "(absent)")
-
-    # The icon key is asserted here because its absence shipped a release with no app
-    # icon and *nothing failed*: the bundle simply had an .icns nobody referenced.
-    # A standing check costs one line and closes that hole.
-    icon = info.get("CFBundleIconFile")
-    records[f"plist {label} icon"] = icon or "(absent — the app would have no icon)"
-    if icon:
-        resource = plist.parent / "Resources" / f"{icon}.icns"
-        if not resource.exists():
-            records[f"plist {label} icon file"] = f"(missing: {resource.name})"
+# The built bundle is checked by a separate stage that runs *after* the app build.
+# Doing it here read a stale artifact from a previous run and reported the version of
+# whatever was last built rather than of the current tree — a false failure that looked
+# like a real version mismatch.
+informational = "the built bundle is verified after the app build"
 
 problems: list[str] = []
-
-for note in informational:
-    print(f"  --   {note}")
 
 for name, value in records.items():
     if name.endswith(" icon") or "icon file" in name:

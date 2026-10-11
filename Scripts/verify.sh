@@ -248,6 +248,11 @@ if [[ "$QUICK" == "0" ]]; then
         [ "$ran" -ge 1 ] || { echo "no architecture could be tested"; exit 1; }
       '
 
+    # After the build, so it inspects a bundle from *this* run. The source-only version
+    # check runs early instead; it cannot see the resolved plist.
+    stage "built bundle: version, icon, target" \
+      python3 Scripts/checks/built_bundle.py
+
     # A DMG is a zip of nothing: it only counts as working if it mounts and the app
     # inside runs. This is the check that would have caught the empty first image.
     if command -v dmgbuild >/dev/null 2>&1 || python3 -c "import dmgbuild" 2>/dev/null; then

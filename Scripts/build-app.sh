@@ -87,7 +87,16 @@ else
   esac
 fi
 
-if [[ ! -d apps/mac/MacCV.xcodeproj ]]; then
+# Regenerate whenever project.yml is newer than the generated project.
+#
+# This matters more than it looks: MARKETING_VERSION lives in project.yml, so after
+# `bump-version.sh` a stale .xcodeproj would build the *previous* version while every
+# source file said otherwise. The check that reads the built bundle caught exactly that
+# — a fresh build reporting 0.1.0 against sources saying 0.1.1.
+PROJECT_FILE="apps/mac/project.yml"
+PBXPROJ="apps/mac/MacCV.xcodeproj/project.pbxproj"
+
+if [[ ! -f "$PBXPROJ" ]] || [[ "$PROJECT_FILE" -nt "$PBXPROJ" ]]; then
   echo "==> generating the Xcode project"
   (cd apps/mac && xcodegen generate >/dev/null)
 fi
