@@ -56,6 +56,18 @@ private struct GeneralSettingsTab: View {
             }
 
             Section {
+                Picker(String(localized: "row.action.doubleClick.title"),
+                       selection: $settings.rowDoubleClickAction) {
+                    ForEach(RowDoubleClickAction.allCases, id: \.self) { action in
+                        Text(action.label).tag(action)
+                    }
+                }
+                Text(String(localized: "row.action.doubleClick.detail"))
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+            }
+
+            Section {
                 Picker(String(localized: "settings.general.language.title"), selection: $settings.languageOverride) {
                     Text(AppSettings.systemLanguageLabel).tag(String?.none)
                     ForEach(AppSettings.supportedLanguages, id: \.code) { language in
@@ -83,6 +95,7 @@ private struct GeneralSettingsTab: View {
             store.historyLimit = newValue
             settings.save()
         }
+        .onChange(of: settings.rowDoubleClickAction) { _, _ in settings.save() }
         .onChange(of: settings.languageOverride) { _, _ in
             needsRelaunch = settings.applyLanguageOverride()
             settings.save()

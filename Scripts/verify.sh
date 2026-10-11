@@ -162,6 +162,25 @@ stage "READMEs agree on the facts" \
 stage "AGENTS.md matches the repository" \
   python3 Scripts/checks/agents_doc.py
 
+stage "release signing is either configured or documented" \
+  bash -c '
+    set -e
+    # An ad-hoc signed release is acceptable, but it must be a stated choice rather
+    # than an accident: the docs have to say what users will see.
+    if grep -q "could not verify" docs/RELEASING.md && grep -q "adhoc" docs/RELEASING.md; then
+      echo "unsigned path documented"
+    else
+      echo "docs/RELEASING.md does not explain the ad-hoc signing outcome"
+      exit 1
+    fi
+    if grep -q "MACCV_DEVELOPER_ID" .github/workflows/release.yml; then
+      echo "signing secrets wired"
+    else
+      echo "release.yml has no signing path"
+      exit 1
+    fi
+  '
+
 stage "documented standards exist" \
   bash -c '
     set -e

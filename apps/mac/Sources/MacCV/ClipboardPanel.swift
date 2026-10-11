@@ -174,6 +174,13 @@ private struct ClipRow: View {
     @Environment(AppSettings.self) private var settings
     let snapshot: ClipSnapshot
 
+    /// Briefly shows a confirmation after a copy.
+    ///
+    /// The panel is a popover that may stay open, so without feedback a click is
+    /// indistinguishable from a click that missed. This is cleared by a task rather
+    /// than a timer, so it cannot outlive the row.
+    @State private var justCopied = false
+
     var body: some View {
         HStack(alignment: .top, spacing: 10) {
             Image(systemName: snapshot.kind.symbolName)
@@ -184,19 +191,15 @@ private struct ClipRow: View {
                 Text(snapshot.preview.isEmpty ? snapshot.kind.displayName : snapshot.preview)
                     .lineLimit(2)
                     .font(.system(size: 12))
+
                 HStack(spacing: 5) {
                     Text("\(snapshot.kind.displayName) · \(snapshot.byteLength.formattedBytes)")
-                    // Say when values were hidden, so a masked entry is not
-                    // mistaken for the original content.
                     if snapshot.isRedacted {
                         Text("·")
-                        Label(
-                            String(localized: "row.redacted.badge"),
-                            systemImage: "eye.slash"
-                        )
-                        .labelStyle(.titleAndIcon)
-                        .foregroundStyle(.orange)
-                        .help(redactionTooltip(snapshot))
+                        Label(String(localized: "row.redacted.badge"), systemImage: "eye.slash")
+                            .labelStyle(.titleAndIcon)
+                            .foregroundStyle(.orange)
+                            .help(redactionTooltip(snapshot))
                     }
                 }
                 .font(.caption2)
@@ -204,12 +207,35 @@ private struct ClipRow: View {
             }
 
             Spacer(minLength: 0)
+
+            // The visible affordance. History is only useful if putting an entry back
+            // is obvious, and a context menu alone is not: right-clicking to discover
+            // the primary action is a guess, and there was previously no other way in.
+            Button {
+                copy()
+            } label: {
+                Image(systemName: justCopied ? "checkmark" : "doc.on.doc")
+                    .font(.system(size: 12))
+                    .foregroundStyle(justCopied ? .green : .secondary)
+                    .frame(width: 22, height: 22)
+            }
+            .buttonStyle(.borderless)
+            .help(String(localized: "row.copy.help"))
+            .accessibilityLabel(Text(String(localized: "row.copy")))
+            .opacity(justCopied ? 1 : 0.75)
         }
         .padding(.horizontal, 12)
         .padding(.vertical, 7)
         .contentShape(Rectangle())
-        .onTapGesture(count: 2) { store.restore(snapshot) }
+        // A double click does whatever the user configured. Registered before the
+        // single click so SwiftUI resolves `count: 2` first; with only the single
+        // gesture attached, every double click would fire two copies.
+        .onTapGesture(count: 2) { store.performDoubleClickAction(on: snapshot) }
+        // A single click copies. It is the safe, universal action, and the one that
+        // has to be reachable without knowing the app.
+        .onTapGesture { copy() }
         .contextMenu {
+            Button(String(localized: "row.copy")) { copy() }
             Button(String(localized: "row.paste")) { store.restore(snapshot) }
             Button(String(localized: "row.pastePlain")) { store.restoreAsPlainText(snapshot) }
 
@@ -236,7 +262,29 @@ private struct ClipRow: View {
                 store.forget(snapshot)
             }
         }
-        .help(String(localized: "row.hint.doubleClick"))
+        .help(doubleClickHint)
+    }
+
+    /// Copies the entry and shows a brief confirmation.
+    private func copy() {
+        guard store.copy(snapshot) else { return }
+        justCopied = true
+        Task {
+            try? await Task.sleep(for: .seconds(1.1))
+            justCopied = false
+        }
+    }
+
+    /// Describes what a double click does, so the setting is discoverable from the row.
+    private var doubleClickHint: String {
+        let action = settings.rowDoubleClickAction
+        guard action != .nothing else {
+            return String(localized: "row.copy.help")
+        }
+        return String(
+            format: String(localized: "row.hint.usage"),
+            action.label.lowercased()
+        )
     }
 }
 

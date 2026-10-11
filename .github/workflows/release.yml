@@ -30,6 +30,10 @@ jobs:
   release:
     name: Publish release
     runs-on: xcode-27
+    env:
+      # `secrets` cannot be referenced from a step's `if:`, so it is lifted to the job
+      # level where it can be tested. Empty means signing is not configured.
+      HAS_SIGNING: ${{ secrets.MACCV_DEVELOPER_ID != '' }}
     outputs:
       version: ${{ steps.version.outputs.version }}
       tag: ${{ steps.version.outputs.tag }}
@@ -111,6 +115,37 @@ jobs:
       - name: Test the engine
         run: cargo test --workspace
 
+      - name: Import the Developer ID certificate
+        # Optional. Absent, the release is ad-hoc signed and macOS warns on first
+        # launch — which is why the README says to expect that. Present, the release
+        # is signed and notarized and the warning disappears.
+        id: signing
+        if: ${{ env.HAS_SIGNING == 'true' }}
+        env:
+          CERTIFICATE: ${{ secrets.MACCV_DEVELOPER_ID }}
+          PASSWORD: ${{ secrets.MACCV_CERTIFICATE_PASSWORD }}
+        run: |
+          set -euo pipefail
+          KEYCHAIN="$RUNNER_TEMP/maccv-signing.keychain-db"
+          KEYCHAIN_PASSWORD="$(openssl rand -hex 24)"
+
+          security create-keychain -p "$KEYCHAIN_PASSWORD" "$KEYCHAIN"
+          security set-keychain-settings -lut 3600 "$KEYCHAIN"
+          security unlock-keychain -p "$KEYCHAIN_PASSWORD" "$KEYCHAIN"
+
+          echo "$CERTIFICATE" | base64 --decode > "$RUNNER_TEMP/cert.p12"
+          security import "$RUNNER_TEMP/cert.p12" -k "$KEYCHAIN" \
+            -P "$PASSWORD" -T /usr/bin/codesign
+          security set-key-partition-list -S apple-tool:,apple:,codesign: \
+            -s -k "$KEYCHAIN_PASSWORD" "$KEYCHAIN" >/dev/null
+          # shellcheck disable=SC2046  # deliberate word splitting of the chain list
+          security list-keychains -d user -s "$KEYCHAIN" \
+            $(security list-keychains -d user | tr -d '"')
+
+          rm -f "$RUNNER_TEMP/cert.p12"
+          echo "keychain=$KEYCHAIN" >> "$GITHUB_OUTPUT"
+          echo "Signed builds enabled."
+
       - name: Generate the Xcode project
         working-directory: apps/mac
         run: xcodegen generate
@@ -128,6 +163,9 @@ jobs:
           VERSION: ${{ steps.version.outputs.version }}
           TAG: ${{ steps.version.outputs.tag }}
           REPO: ${{ github.repository }}
+          NOTARY_KEY: ${{ secrets.MACCV_NOTARY_KEY }}
+          NOTARY_KEY_ID: ${{ secrets.MACCV_NOTARY_KEY_ID }}
+          NOTARY_ISSUER: ${{ secrets.MACCV_NOTARY_ISSUER }}
         run: |
           set -euo pipefail
           mkdir -p dist
@@ -139,10 +177,50 @@ jobs:
             # code that has already been exercised on every push.
             Scripts/build-app.sh --arch "$ARCH" --out "dist/$ARCH"
 
+            # Sign before packaging, so the signature covers what ships inside the
+            # image. Ad-hoc when no certificate is configured.
+            if [[ -n "${{ steps.signing.outputs.keychain }}" ]]; then
+              codesign --force --deep --options runtime --timestamp \
+                --sign "Developer ID Application" "dist/$ARCH/MacCV.app"
+              codesign --verify --deep --strict --verbose=2 "dist/$ARCH/MacCV.app"
+            fi
+
             DMG="dist/MacCV-$VERSION-$ARCH.dmg"
             PATH="$PATH:$HOME/.local/bin" \
               Scripts/make-dmg.sh --app "dist/$ARCH/MacCV.app" --out "$DMG"
+
+            if [[ -n "${{ steps.signing.outputs.keychain }}" ]]; then
+              codesign --force --timestamp --sign "Developer ID Application" "$DMG"
+            fi
           done
+
+          # ---------------------------------------------------------------------
+          # Notarization. Submitting the DMG covers the app inside it.
+          #
+          # The staple step is what removes the first-launch prompt entirely: without
+          # a stapled ticket macOS has to ask Apple over the network, and offline it
+          # warns instead.
+          # ---------------------------------------------------------------------
+          if [[ -n "${{ steps.signing.outputs.keychain }}" ]]; then
+            echo "=== notarizing ==="
+            printf '%s' "$NOTARY_KEY" | base64 --decode > "$RUNNER_TEMP/notary.p8"
+
+            for image in dist/*.dmg; do
+              xcrun notarytool submit "$image" \
+                --key "$RUNNER_TEMP/notary.p8" \
+                --key-id "$NOTARY_KEY_ID" \
+                --issuer "$NOTARY_ISSUER" \
+                --wait
+              xcrun stapler staple "$image"
+              xcrun stapler validate "$image"
+            done
+
+            rm -f "$RUNNER_TEMP/notary.p8"
+            security delete-keychain "${{ steps.signing.outputs.keychain }}" || true
+          else
+            echo "::warning::Publishing ad-hoc signed. macOS will warn on first launch;"
+            echo "::warning::set MACCV_DEVELOPER_ID and the notary secrets to remove it."
+          fi
 
           # ---------------------------------------------------------------------
           # Checksums: one combined file, plus a per-file copy.

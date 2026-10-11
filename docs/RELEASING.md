@@ -213,6 +213,76 @@ before treating a release as done:
 
 ---
 
+## Gatekeeper: why the first launch warns
+
+The first release is ad-hoc signed, so macOS shows *"Apple could not verify
+'MacCV.app' is free of malware"*. This is expected, and the two commonly-suggested
+workarounds both fail. Worth knowing why before repeating them to a user.
+
+**`xattr -d com.apple.quarantine MacCV.app` does not work.** The quarantine
+attribute is set per file, not per bundle: a built `.app` carries it on the
+executable, the `.icns`, the localisations and the code signature, and clearing only
+the top level leaves the rest. The recursive form does clear them:
+
+```bash
+xattr -dr com.apple.quarantine /Applications/MacCV.app   # clears every file
+```
+
+**…and Gatekeeper still refuses.** With the attributes gone, `spctl --assess --type
+execute` still says `rejected`, because Gatekeeper's verdict is about the
+*signature*, not the flag:
+
+```
+Signature=adhoc
+TeamIdentifier=not set
+```
+
+An ad-hoc signature proves nothing about who built the binary. Removing the
+attribute only stops the "downloaded from the internet" prompt; it does not make an
+ad-hoc signature trusted.
+
+### The actual fix
+
+A **Developer ID Application** certificate plus **notarization**. Then:
+
+1. `codesign --deep --force --options runtime --sign "Developer ID Application: …"`,
+   which sets a real `TeamIdentifier`.
+2. `xcrun notarytool submit --wait` with an App Store Connect API key.
+3. `xcrun stapler staple`, so the ticket travels with the app and the first launch
+   needs no network check.
+
+Gatekeeper then accepts it silently on every Mac.
+
+This requires an Apple Developer Program membership. It is not something the build
+can work around, and no amount of attribute-clearing substitutes for it.
+
+### Why Homebrew avoids the problem
+
+A formula builds locally, so the result carries no quarantine attribute, and the user
+running `brew install` is itself the authorisation. That is a legitimate distribution
+path for a developer tool and is documented in the README as an interim option — but
+it is a workaround, not a solution, and it should not be presented as one.
+
+### Preparing for signing
+
+`.github/workflows/release.yml` reads two optional secrets and, when they are present,
+signs and notarizes instead of ad-hoc signing:
+
+| Secret | What |
+|---|---|
+| `MACCV_DEVELOPER_ID` | The **Developer ID Application** certificate, base64-encoded `.p12` |
+| `MACCV_CERTIFICATE_PASSWORD` | Its password |
+| `MACCV_NOTARY_KEY` | App Store Connect API key (`.p8`), base64-encoded |
+| `MACCV_NOTARY_KEY_ID` | Its key ID |
+| `MACCV_NOTARY_ISSUER` | Its issuer UUID |
+
+Setting `MACCV_DEVELOPER_ID` is what switches signing on; the workflow tests it and
+skips the whole step when it is absent, so an unsigned release still publishes.
+
+With them absent the release still publishes, ad-hoc signed, and the README keeps
+telling users to expect the prompt. Adding them later is a repository secret, not a
+code change.
+
 ## Rollback
 
 There is no "unpublish". Once a version is on the feed, users have it.

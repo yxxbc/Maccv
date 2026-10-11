@@ -51,30 +51,28 @@ targets:
       - path: Sources/MacCV
       - path: Resources
         buildPhase: resources
-    info:
-      path: MacCV-Info.plist
-      properties:
-        CFBundleName: MacCV
-        CFBundleDisplayName: MacCV
-        CFBundleShortVersionString: "0.1.0"
-        CFBundleVersion: "1"
-        CFBundlePackageType: APPL
-        LSMinimumSystemVersion: "15.0"
-        # A clipboard manager is a menu-bar accessory, never a Dock app.
-        LSUIElement: true
-        NSHumanReadableCopyright: "Copyright © 2026 yxxbc. Licensed under Apache-2.0."
-        # macOS 27 asks for explicit pasteboard access. MacCV reads the clipboard
-        # to build the history the user asked for; the system shows its own
-        # consent prompt and this string explains why.
-        NSPasteboardUsageDescription: "MacCV reads your clipboard so it can keep the history you asked for. Nothing leaves your Mac."
-        NSPrincipalClass: NSApplication
     settings:
       base:
         PRODUCT_NAME: MacCV
         PRODUCT_BUNDLE_IDENTIFIER: io.github.yxxbc.maccv
+
+        # --- Info.plist -------------------------------------------------------
+        #
+        # A committed plist, not xcodegen's `info:` shorthand. The shorthand
+        # *replaces* the target's plist configuration rather than merging with it,
+        # which silently discarded INFOPLIST_FILE and every key declared here. That
+        # is how the first release shipped without an app icon — CFBundleIconFile
+        # was among the keys that vanished, and nothing failed. The app simply had
+        # the generic blank icon.
+        #
+        # Version values use $(MARKETING_VERSION) / $(CURRENT_PROJECT_VERSION)
+        # substitution, so Scripts/bump-version.sh still updates one place.
+        INFOPLIST_FILE: MacCV-Info.plist
+        GENERATE_INFOPLIST_FILE: NO
+        # --- end Info.plist ---------------------------------------------------
+
         MARKETING_VERSION: "0.1.0"
         CURRENT_PROJECT_VERSION: "1"
-        INFOPLIST_FILE: MacCV-Info.plist
         # Link the Rust engine and the frameworks AppKit needs from Rust.
         LIBRARY_SEARCH_PATHS:
           - $(MACCV_ROOT)/target/maccv-apple

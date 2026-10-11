@@ -8,7 +8,7 @@
 > **The one command that answers "did I break something":**
 >
 > ```bash
-> Scripts/verify.sh          # 22 stages, ~3 min, same command CI runs
+> Scripts/verify.sh          # 23 stages, ~3 min, same command CI runs
 > ```
 
 ---
@@ -242,7 +242,7 @@ rsvg-convert -w 1024 -h 1024 assets/logo.svg -o assets/logo.png
 ## 4. Build, test, verify
 
 ```bash
-Scripts/verify.sh                # everything: 22 stages, ~3 min
+Scripts/verify.sh                # everything: 23 stages, ~3 min
 Scripts/verify.sh --quick        # skip the app build (Rust + checks only)
 Scripts/verify.sh --no-network   # skip the one check that reaches out
 
@@ -281,6 +281,7 @@ These are enforced by `Scripts/checks/`. Read them before arguing with them.
 | **Performance claims are asserted** | `PERFORMANCE.md` + tests | A published number has a test that fails if it regresses. |
 | **The two languages agree** | `i18n.py`, `readme_parity.py`, `website.py` | On keys, facts and structure — not prose. |
 | **This guide stays true** | `agents_doc.py` | Every path, script and stage count in `AGENTS.md` resolves. |
+| **Workflows pass what scripts read** | `workflow_env.py` | The env names a workflow sets match what its script requires. A `ARM_URL`/`ARM64_URL` mismatch once shipped a release that never wrote its update feed. |
 
 ### Two rules when adding a check
 
@@ -339,7 +340,23 @@ narrows ARCHS to the host**, while `showBuildSettings` still reports
 `arm64 x86_64`. Always verify with `lipo -info` on the product; the settings are not
 evidence. `Scripts/build-app.sh` does this assertion for you.
 
-### 6.6 Sandboxing
+### 6.6 Gatekeeper will warn, and `xattr` will not fix it
+
+The release is ad-hoc signed until a Developer ID exists, so macOS shows *"Apple could
+not verify MacCV.app is free of malware"*. Two things are commonly suggested and both
+fail:
+
+- `xattr -d com.apple.quarantine MacCV.app` — the attribute is set **per file**, so
+  clearing only the bundle leaves it on the executable, the `.icns` and the
+  localisations. `-dr` clears them, and…
+- …`spctl --assess --type execute` **still rejects it**, because Gatekeeper's verdict
+  is about the signature, not the flag. `Signature=adhoc`, `TeamIdentifier=not set`.
+
+The only fix is a Developer ID certificate plus notarization. `release.yml` does that
+when `MACCV_DEVELOPER_ID` is set, and `docs/RELEASING.md` documents it. Do not present
+`xattr` as a solution.
+
+### 6.7 Sandboxing
 
 The app is **not** sandboxed, and that is deliberate: it must read the pasteboard, and
 the sandbox would not change what it can see.

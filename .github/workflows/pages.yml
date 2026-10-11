@@ -75,12 +75,12 @@ jobs:
           VERSION: ${{ inputs.version }}
           TAG: ${{ inputs.tag }}
           CHANNEL: ${{ inputs.channel }}
-          X86_URL: ${{ inputs.x86_64_url }}
-          X86_SHA: ${{ inputs.x86_64_sha }}
-          X86_SIZE: ${{ inputs.x86_64_size }}
-          ARM_URL: ${{ inputs.arm64_url }}
-          ARM_SHA: ${{ inputs.arm64_sha }}
-          ARM_SIZE: ${{ inputs.arm64_size }}
+          ARM64_URL: ${{ inputs.arm64_url }}
+          ARM64_SHA: ${{ inputs.arm64_sha }}
+          ARM64_SIZE: ${{ inputs.arm64_size }}
+          X86_64_URL: ${{ inputs.x86_64_url }}
+          X86_64_SHA: ${{ inputs.x86_64_sha }}
+          X86_64_SIZE: ${{ inputs.x86_64_size }}
         run: python3 Scripts/checks/write_feed.py
 
       - name: Show the feed that will be published

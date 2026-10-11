@@ -278,6 +278,52 @@ final class ClipboardStore {
         }
     }
 
+    /// Copies an entry back to the clipboard and reports that it happened.
+    ///
+    /// Returns whether the copy succeeded, so the row can show a brief confirmation
+    /// rather than leaving the user unsure whether the click registered. The panel is
+    /// a popover that may stay open, so silence reads as a failure.
+    @discardableResult
+    func copy(_ snapshot: ClipSnapshot) -> Bool {
+        guard let engine else { return false }
+        do {
+            try engine.write(snapshot)
+            accessIssue = nil
+            current = snapshot
+            return true
+        } catch let error as ClipboardError {
+            accessIssue = error
+            return false
+        } catch {
+            accessIssue = .writeFailed
+            return false
+        }
+    }
+
+    /// Performs the user's configured double-click action for an entry.
+    ///
+    /// The policy lives here rather than in the row, so the setting and the behaviour
+    /// cannot disagree about what a double-click means.
+    func performDoubleClickAction(on snapshot: ClipSnapshot) {
+        switch settings?.rowDoubleClickAction ?? .copy {
+        case .copy:
+            copy(snapshot)
+        case .paste:
+            // Two steps, in order: the content has to be on the clipboard before the
+            // keystroke arrives, or the app pastes whatever was there instead.
+            guard copy(snapshot) else { return }
+            pasteFromClipboard()
+        case .nothing:
+            break
+        }
+    }
+
+    /// Posts ⌘V to the frontmost application.
+    func pasteFromClipboard() {
+        let status = maccv_secure_input_paste()
+        accessIssue = status == MACCV_ERROR_OK ? nil : ClipboardError(code: status)
+    }
+
     /// Empties the clipboard.
     func clearClipboard() {
         guard let engine else { return }

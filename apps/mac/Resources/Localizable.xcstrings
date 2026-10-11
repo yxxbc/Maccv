@@ -256,23 +256,6 @@
         }
       }
     },
-    "row.hint.doubleClick": {
-      "extractionState": "manual",
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Double-click to put this back on the clipboard"
-          }
-        },
-        "zh-Hans": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "双击将此内容放回剪贴板"
-          }
-        }
-      }
-    },
     "kind.text": {
       "extractionState": "manual",
       "localizations": {
@@ -1595,6 +1578,159 @@
           "stringUnit": {
             "state": "translated",
             "value": "%lld 条记录"
+          }
+        }
+      }
+    },
+    "row.copy": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Copy"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "复制"
+          }
+        }
+      }
+    },
+    "row.copy.help": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Copy this entry back to the clipboard"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "把这条记录复制回剪贴板"
+          }
+        }
+      }
+    },
+    "row.action.doubleClick.title": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Double-clicking an entry"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "双击条目时"
+          }
+        }
+      }
+    },
+    "row.action.doubleClick.detail": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Which action a double-click performs, and what a single click does, is your choice — the copy button on each row always works."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "双击执行什么、单击执行什么由你决定 —— 每行上的复制按钮始终可用。"
+          }
+        }
+      }
+    },
+    "row.action.copy": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Copy to clipboard"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "复制到剪贴板"
+          }
+        }
+      }
+    },
+    "row.action.paste": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Paste into the frontmost app"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "粘贴到最前面的应用"
+          }
+        }
+      }
+    },
+    "row.action.nothing": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Nothing"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "不做任何事"
+          }
+        }
+      }
+    },
+    "row.copied": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Copied"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "已复制"
+          }
+        }
+      }
+    },
+    "row.hint.usage": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Click an entry to copy it. Right-click for more, or double-click to %@."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "单击条目即可复制。右键查看更多，双击可%@。"
           }
         }
       }

@@ -48,6 +48,32 @@ enum UpdateChannel: String, Codable, Sendable, CaseIterable {
     case prerelease
 }
 
+/// What double-clicking a history entry does.
+///
+/// Configurable because the right answer depends on how someone works: copying back
+/// to the clipboard is safe everywhere, while pasting into the frontmost app is what
+/// people who live in the panel want — and it needs Accessibility access.
+///
+/// A single click always copies. That is the affordance that has to be discoverable
+/// for history to be usable at all, so it is not configurable.
+enum RowDoubleClickAction: String, Codable, Sendable, CaseIterable {
+    /// Put the entry back on the clipboard.
+    case copy
+    /// Paste it into the frontmost app using ⌘V.
+    case paste
+    /// Do nothing on a double-click; the copy button and menu still work.
+    case nothing
+
+    /// Label for the settings picker.
+    var label: String {
+        switch self {
+        case .copy: String(localized: "row.action.copy")
+        case .paste: String(localized: "row.action.paste")
+        case .nothing: String(localized: "row.action.nothing")
+        }
+    }
+}
+
 @MainActor
 @Observable
 final class AppSettings {
@@ -88,6 +114,9 @@ final class AppSettings {
 
     /// Whether to consider pre-releases.
     var includePrereleases: Bool = false
+
+    /// What a double-click on a history entry does.
+    var rowDoubleClickAction: RowDoubleClickAction = .copy
 
     /// Overrides the interface language. `nil` follows the system.
     var languageOverride: String?
@@ -134,6 +163,7 @@ final class AppSettings {
             securePaste: securePaste,
             updatePolicy: updatePolicy,
             includePrereleases: includePrereleases,
+            rowDoubleClickAction: rowDoubleClickAction,
             languageOverride: languageOverride
         )
         guard let data = try? JSONEncoder().encode(stored) else { return }
@@ -148,6 +178,7 @@ final class AppSettings {
         securePaste = stored.securePaste
         updatePolicy = stored.updatePolicy
         includePrereleases = stored.includePrereleases
+        rowDoubleClickAction = stored.rowDoubleClickAction
         languageOverride = stored.languageOverride
     }
 
@@ -161,6 +192,9 @@ final class AppSettings {
         var securePaste: Bool
         var updatePolicy: UpdatePolicy
         var includePrereleases: Bool
+        /// Defaulted rather than required, so a settings blob written by an earlier
+        /// version still decodes instead of being discarded wholesale.
+        var rowDoubleClickAction: RowDoubleClickAction = .copy
         var languageOverride: String?
     }
 }
