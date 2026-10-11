@@ -2,7 +2,7 @@ name: MacCV
 options:
   bundleIdPrefix: io.github.yxxbc
   deploymentTarget:
-    macOS: "27.0"
+    macOS: "15.0"
   createIntermediateGroups: true
   generateEmptyDirectories: true
   groupSortPosition: top
@@ -11,7 +11,7 @@ settings:
   base:
     SWIFT_VERSION: "6.0"
     SWIFT_STRICT_CONCURRENCY: complete
-    MACOSX_DEPLOYMENT_TARGET: "27.0"
+    MACOSX_DEPLOYMENT_TARGET: "15.0"
     ENABLE_HARDENED_RUNTIME: YES
     # The engine is a static library; no dynamic library search paths are needed.
     DEAD_CODE_STRIPPING: YES
@@ -19,14 +19,26 @@ settings:
     GCC_PREFIX_HEADER: ""
     # The Xcode project lives in apps/mac; everything shared is two levels up.
     MACCV_ROOT: $(SRCROOT)/../..
+  # Both architectures are always built for release; a Debug build only builds the
+  # host's, because cross-compiling the Rust engine for the other slice on every
+  # iteration would dominate build time for no benefit.
   configs:
     Debug:
       MACCV_PROFILE: debug
+      # Host architecture only: cross-compiling the engine on every Debug build
+      # would dominate iteration time for no benefit.
+      MACCV_ARCH: native
       SWIFT_OPTIMIZATION_LEVEL: "-Onone"
       # Rust is the expensive part; keep its artifacts out of Xcode's cleaning.
       CARGO_TARGET_DIR: $(MACCV_ROOT)/target
     Release:
       MACCV_PROFILE: release
+      # Both slices of the Rust static library, lipo'd into one archive.
+      MACCV_ARCH: universal
+      # Stated explicitly: the destination can narrow ARCHS to the host, which
+      # would quietly ship an Apple-silicon-only build.
+      ARCHS: "arm64 x86_64"
+      ONLY_ACTIVE_ARCH: NO
       SWIFT_OPTIMIZATION_LEVEL: "-O"
       SWIFT_COMPILATION_MODE: wholemodule
       CARGO_TARGET_DIR: $(MACCV_ROOT)/target
@@ -47,7 +59,7 @@ targets:
         CFBundleShortVersionString: "0.1.0"
         CFBundleVersion: "1"
         CFBundlePackageType: APPL
-        LSMinimumSystemVersion: "27.0"
+        LSMinimumSystemVersion: "15.0"
         # A clipboard manager is a menu-bar accessory, never a Dock app.
         LSUIElement: true
         NSHumanReadableCopyright: "Copyright © 2026 yxxbc. Licensed under Apache-2.0."
@@ -90,6 +102,6 @@ targets:
         basedOnDependencyAnalysis: false
         script: |
           set -euo pipefail
-          "$MACCV_ROOT/Scripts/build-rust.sh" --profile "$MACCV_PROFILE"
+          "$MACCV_ROOT/Scripts/build-rust.sh" --profile "$MACCV_PROFILE" --arch "$MACCV_ARCH"
         outputFiles:
           - $(MACCV_ROOT)/target/maccv-apple/libmaccv_ffi.a

@@ -249,7 +249,9 @@ private struct AccessBanner: View {
             VStack(alignment: .leading, spacing: 4) {
                 Text(title)
                     .font(.caption)
-                if store.accessBehavior.isDenied {
+                // Only meaningful where the OS implements the policy API; on
+                // macOS 15.0–15.3 there is no policy to describe.
+                if store.accessBehavior == .alwaysDeny {
                     Text(String(localized: "error.accessDenied.policy"))
                         .font(.caption2)
                         .foregroundStyle(.secondary)

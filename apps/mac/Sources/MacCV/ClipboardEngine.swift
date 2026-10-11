@@ -146,14 +146,21 @@ enum PasteboardUTI {
     static let sound = "com.apple.cocoa.pasteboard.sound"
 }
 
-/// macOS 27's per-app pasteboard access policy.
+/// The system's per-app pasteboard access policy.
 enum PasteboardAccess: Int32, Sendable {
+    /// This OS does not implement the access-behaviour API (macOS 15.0–15.3).
+    ///
+    /// Distinct from `.default`: "not policed" and "unknown" lead to different UI.
+    case unavailable = -1
     case `default` = 0
     case ask = 1
     case alwaysAllow = 2
     case alwaysDeny = 3
 
     var isDenied: Bool { self == .alwaysDeny }
+
+    /// Whether the system reported a policy at all.
+    var isKnown: Bool { self != .unavailable }
 }
 
 /// Errors surfaced by the engine, mirrored from `MaccvError`.

@@ -120,8 +120,13 @@ gh api --method POST "repos/${FULL_NAME}/pages" \
   || echo "    (Pages may already be configured, or needs enabling once in Settings)"
 
 echo "==> setting topics"
-# Space-separated in one argument, as the API expects.
-gh repo edit "$FULL_NAME" --add-topic "${TOPICS[*]// /,}"
+# One flag per topic. Joining them into a comma-separated string produces a single
+# 102-character topic, which the API rejects with HTTP 422.
+topic_args=()
+for topic in "${TOPICS[@]}"; do
+  topic_args+=(--add-topic "$topic")
+done
+gh repo edit "$FULL_NAME" "${topic_args[@]}"
 
 # ---------------------------------------------------------------------------
 # Social preview

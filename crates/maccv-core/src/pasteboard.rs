@@ -101,9 +101,18 @@ impl std::fmt::Display for ChangeCount {
     }
 }
 
-/// What macOS 27's per-app policy currently allows this process to do.
+/// What the system's per-app pasteboard policy currently allows this process to do.
+///
+/// Populated from `-[NSPasteboard accessBehavior]`, which exists from macOS 15.4.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum AccessBehavior {
+    /// This OS does not implement the access-behaviour API (macOS 15.0–15.3).
+    ///
+    /// The honest answer, and deliberately distinct from [`AccessBehavior::Default`]:
+    /// "the system does not police this" and "we cannot tell" are different claims,
+    /// and code that gates behaviour on the policy must not treat the second as the
+    /// first.
+    Unavailable,
     /// No prompt has ever been shown for this app; access is not yet policed.
     Default,
     /// The system will prompt before granting pasteboard access.
@@ -123,6 +132,11 @@ impl AccessBehavior {
     /// Whether the user has denied access outright.
     pub const fn is_denied(self) -> bool {
         matches!(self, Self::AlwaysDeny)
+    }
+
+    /// Whether the system reports a policy at all.
+    pub const fn is_known(self) -> bool {
+        !matches!(self, Self::Unavailable)
     }
 
     fn from_raw(raw: NSPasteboardAccessBehavior) -> Self {
@@ -473,9 +487,35 @@ impl Pasteboard {
         self.last_self_write() == Some(count)
     }
 
-    /// macOS 27's current access policy for this pasteboard.
+    /// The system's current access policy for this pasteboard.
+    ///
+    /// # Availability
+    ///
+    /// `accessBehavior` arrived in **macOS 15.4**. On 15.0–15.3 the selector does
+    /// not exist, and messaging an object with an unimplemented selector is
+    /// undefined behaviour — it does not raise, it corrupts. So the selector is
+    /// probed first and [`AccessBehavior::Unavailable`] is returned when it is
+    /// absent, which callers must treat as "unknown, do not gate on it" rather
+    /// than as a permissive answer.
     pub fn access_behavior(&self) -> AccessBehavior {
+        if !self.supports_access_behavior() {
+            return AccessBehavior::Unavailable;
+        }
         AccessBehavior::from_raw(self.inner.accessBehavior())
+    }
+
+    /// Whether this OS implements `-[NSPasteboard accessBehavior]`.
+    ///
+    /// Checked once per call rather than cached: the answer cannot change while the
+    /// process runs, but a `OnceLock` would add a branch and an atomic load to a
+    /// path that is already sub-microsecond, for no benefit.
+    #[inline]
+    fn supports_access_behavior(&self) -> bool {
+        use objc2::runtime::NSObjectProtocol;
+        // SAFETY: `Sel::register` interns the name, which is safe to call with any
+        // NUL-terminated string.
+        let selector = objc2::runtime::Sel::register(c"accessBehavior");
+        self.inner.respondsToSelector(selector)
     }
 
     /// The types present on the pasteboard right now, in AppKit's order.
@@ -517,7 +557,7 @@ impl Pasteboard {
             // An absent item array means either "empty" or "refused". Only the
             // access policy distinguishes them, so consult it rather than
             // reporting an empty clipboard the user never had.
-            if self.access_behavior().is_denied() {
+            if self.access_behavior() == AccessBehavior::AlwaysDeny {
                 return Err(Error::AccessDenied);
             }
             return Ok(Snapshot {
@@ -1218,5 +1258,40 @@ mod tests {
         assert!(AccessBehavior::Default.is_unrestricted());
         assert!(!AccessBehavior::Ask.is_unrestricted());
         assert!(AccessBehavior::AlwaysDeny.is_denied());
+    }
+
+    /// "The OS will not tell us" must not be confused with "the OS does not
+    /// police this": on macOS 15.0–15.3 the API is absent, and code that gated on
+    /// the policy would otherwise silently conclude access is unrestricted.
+    #[test]
+    fn unavailable_access_behavior_is_not_treated_as_permissive() {
+        assert!(!AccessBehavior::Unavailable.is_known());
+        assert!(!AccessBehavior::Unavailable.is_denied());
+        // It is not "unrestricted" either — callers must check `is_known` first.
+        assert!(!AccessBehavior::Unavailable.is_unrestricted());
+        assert!(AccessBehavior::Default.is_known());
+        assert!(AccessBehavior::AlwaysDeny.is_known());
+    }
+
+    /// The selector probe must agree with what the running OS actually implements,
+    /// on whichever OS the suite happens to run on.
+    #[test]
+    fn access_behavior_probe_matches_reality() {
+        let pb = Pasteboard::unique();
+        let behavior = pb.access_behavior();
+        // Asking must never panic or return a fabricated policy.
+        if pb.supports_access_behavior() {
+            assert_ne!(
+                behavior,
+                AccessBehavior::Unavailable,
+                "selector exists, so a policy must be reported"
+            );
+        } else {
+            assert_eq!(
+                behavior,
+                AccessBehavior::Unavailable,
+                "selector is absent, so availability must be reported"
+            );
+        }
     }
 }

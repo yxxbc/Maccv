@@ -91,9 +91,16 @@ typedef enum MaccvError {
 } MaccvError;
 
 /**
- * What macOS 27's per-app policy currently permits.
+ * What the system's per-app pasteboard policy currently permits.
  */
 typedef enum MaccvAccessBehavior {
+  /**
+   * This OS does not implement the access-behaviour API (macOS 15.0–15.3).
+   *
+   * Deliberately not zero: a caller that initialises a variable to 0 and forgets
+   * to check the return value must not silently conclude "access is not policed".
+   */
+  MACCV_ACCESS_BEHAVIOR_UNAVAILABLE = -1,
   /**
    * Access has not been policed yet for this app.
    */

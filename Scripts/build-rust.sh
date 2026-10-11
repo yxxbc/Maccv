@@ -9,6 +9,11 @@
 # Usage:
 #   Scripts/build-rust.sh [--profile debug|release] [--arch native|universal]
 #
+# Note for universal builds: Xcode must be invoked with
+# `-destination 'generic/platform=macOS'`. The more usual
+# `-destination 'platform=macOS'` narrows ARCHS to the host architecture and
+# silently produces a single-slice binary even though ARCHS says "arm64 x86_64".
+#
 # Environment:
 #   MACCV_PROFILE   Overrides --profile (set by Xcode configurations)
 #   MACCV_ARCH      Overrides --arch

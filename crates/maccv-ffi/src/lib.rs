@@ -90,10 +90,15 @@ impl From<maccv_core::Error> for MaccvError {
     }
 }
 
-/// What macOS 27's per-app policy currently permits.
+/// What the system's per-app pasteboard policy currently permits.
 #[repr(C)]
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum MaccvAccessBehavior {
+    /// This OS does not implement the access-behaviour API (macOS 15.0–15.3).
+    ///
+    /// Deliberately not zero: a caller that initialises a variable to 0 and forgets
+    /// to check the return value must not silently conclude "access is not policed".
+    Unavailable = -1,
     /// Access has not been policed yet for this app.
     Default = 0,
     /// The system will prompt before granting access.
@@ -108,6 +113,7 @@ impl From<maccv_core::AccessBehavior> for MaccvAccessBehavior {
     fn from(value: maccv_core::AccessBehavior) -> Self {
         use maccv_core::AccessBehavior as A;
         match value {
+            A::Unavailable => Self::Unavailable,
             A::Default => Self::Default,
             A::Ask => Self::Ask,
             A::AlwaysAllow => Self::AlwaysAllow,
