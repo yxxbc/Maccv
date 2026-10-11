@@ -742,12 +742,55 @@ mod tests {
         assert!(found.is_empty(), "unexpected: {found:?}");
     }
 
+    /// Fixture token body.
+    ///
+    /// Assembled at runtime rather than written as a literal, so no prefix-plus-body
+    /// string appears verbatim in the source. GitHub's push protection flagged an
+    /// earlier version of this test, and the right response to that is to change the
+    /// fixture — never to click "allow" on the repository setting, which would also
+    /// disable the check for every future commit.
+    ///
+    /// The length sits in a narrow window, and both bounds are real:
+    ///
+    /// - **At least 16 characters**, the `MIN_BODY` threshold below. Anything
+    ///   shorter is not detected at all, so the test would fail for the wrong reason.
+    /// - **Fewer than 24**, because a prefix plus a body that long is the shape
+    ///   credential scanners look for. A fixture here must look like a secret to this
+    ///   detector and to nothing else.
+    const FIXTURE_BODY: &str = "NOTAREALKEY123456";
+
+    /// Builds a token-shaped fixture from a prefix.
+    fn fixture(prefix: &str) -> String {
+        format!("{prefix}{FIXTURE_BODY}")
+    }
+
+    /// Guards the window above, so an edit that breaks either bound fails here with a
+    /// clear message rather than as a confusing assertion elsewhere.
+    #[test]
+    fn fixture_body_fits_between_detection_and_scanner_thresholds() {
+        let length = FIXTURE_BODY.len();
+        assert!(
+            length >= 16,
+            "fixture body is {length} characters, below the detector's threshold, so \
+             the token tests would pass without detecting anything"
+        );
+        assert!(
+            length < 24,
+            "fixture body is {length} characters; with its prefix that reaches the \
+             length credential scanners flag, which would block the push"
+        );
+    }
+
     #[test]
     fn detects_github_and_stripe_tokens() {
-        let text = "ghp_NOTAREALKEY and sk_live_NOTAREALKEY";
-        let found = detect(text);
+        let token = fixture("ghp_");
+        let text = format!("{token} and {}", fixture("sk_live_"));
+        let found = detect(&text);
         assert_eq!(found.len(), 2, "{found:?}");
         assert!(found.iter().all(|m| m.kind == SensitiveKind::ApiKey));
+        // The prefix is masked along with the body: leaving `sk_live_` visible would
+        // confirm which provider the secret belongs to.
+        assert_eq!(found[0].as_str(&text), token);
     }
 
     #[test]
@@ -892,8 +935,8 @@ mod tests {
 
     #[test]
     fn matches_never_overlap_and_are_ordered() {
-        let text = "ghp_NOTAREALKEY user@example.com";
-        let found = detect(text);
+        let text = format!("{} user@example.com", fixture("ghp_"));
+        let found = detect(&text);
         for pair in found.windows(2) {
             assert!(
                 pair[0].range.end <= pair[1].range.start,
