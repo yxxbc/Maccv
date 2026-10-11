@@ -144,6 +144,29 @@ stage "localisation keys all exist" \
   python3 Scripts/checks/i18n.py
 
 # ---------------------------------------------------------------------------
+# Security standards (docs/SECURITY.md)
+#
+# These are the invariants the project's privacy claims rest on, so they are
+# checked rather than documented and hoped for.
+# ---------------------------------------------------------------------------
+
+stage "no undeclared network access" \
+  python3 Scripts/checks/no_undeclared_network.py
+
+stage "clipboard content is never persisted" \
+  python3 Scripts/checks/no_content_persistence.py
+
+stage "documented standards exist" \
+  bash -c '
+    set -e
+    for doc in SECURITY PERFORMANCE TESTING RELEASING; do
+      [ -f "docs/$doc.md" ] || { echo "docs/$doc.md is missing"; exit 1; }
+      # A standards document with no content is worse than none.
+      [ "$(wc -l < "docs/$doc.md")" -gt 40 ] || { echo "docs/$doc.md is too thin"; exit 1; }
+    done
+  '
+
+# ---------------------------------------------------------------------------
 # App
 # ---------------------------------------------------------------------------
 
