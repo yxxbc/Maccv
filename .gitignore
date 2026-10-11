@@ -32,9 +32,11 @@ build/
 Packages/
 Package.resolved
 
-# The update feeds are written by the release workflow into the Pages artifact, not
-# committed: a feed in the repository would be a claim about a release that may not
-# have been published.
+# The update feed is generated at deploy time by Scripts/checks/publish_feed.py, from
+# the newest published release's own assets. Not committed, because a feed in the
+# repository is a claim about a release that may not exist — and because a committed copy
+# would be deleted by the next deploy of docs/ anyway, which is precisely what happened
+# the first time.
 docs/latest.json
 docs/preview.json
 

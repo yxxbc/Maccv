@@ -34,7 +34,9 @@ SHARED_FACTS = [
     ("cross-link", "README.zh-CN.md", "README.md"),
     ("website", "yxxbc.github.io", "yxxbc.github.io"),
     ("security doc", "docs/SECURITY.md", "docs/SECURITY.md"),
-    ("preview placeholder", "preview-placeholder.png", "preview-placeholder.png"),
+    # The preview differs by language on purpose — a Chinese README showing an English
+    # panel would read as an untranslated app.
+    ("preview image", "assets/preview-en.png", "assets/preview-zh.png"),
 ]
 
 problems: list[str] = []

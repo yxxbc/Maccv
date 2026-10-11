@@ -31,25 +31,8 @@ just the text — and can hand it to an app without the clipboard ever seeing it
 
 <br>
 
-<!--
-  PREVIEW PLACEHOLDER
-
-  A screencast belongs here: copying a rich paragraph, opening the panel, and
-  pasting it back still formatted. Keep it under ~4 MB and add it as
-  assets/preview.gif, then replace this block with:
-
-    <div align="center">
-      <img src="assets/preview.gif" alt="Copying a formatted paragraph and pasting it back with its formatting intact" width="720">
-    </div>
-
-  A still frame is a poor substitute for showing the panel open and content
-  landing in another app.
--->
-
 <div align="center">
-  <img src="assets/preview-placeholder.png" alt="MacCV panel preview — a screencast goes here" width="720">
-  <br>
-  <sub><i>Preview coming soon — the menu-bar panel with live previews and search.</i></sub>
+  <img src="assets/preview-en.png" alt="The MacCV panel: a rich-text entry, an image, a three-file copy, and an API key shown masked" width="720">
 </div>
 
 <br>

@@ -31,6 +31,7 @@ struct ClipboardPanel: View {
         VStack(spacing: 0) {
             header
             Divider()
+            searchField
 
             if let issue = store.accessIssue {
                 AccessBanner(error: issue)
@@ -49,14 +50,42 @@ struct ClipboardPanel: View {
             footer
         }
         .frame(width: 380, height: 480)
-        .searchable(
-            text: $query,
-            placement: .toolbar,
-            prompt: Text(String(localized: "panel.search.prompt"))
-        )
     }
 
     // MARK: - Sections
+
+    /// The search field.
+    ///
+    /// An inline field rather than `.searchable(placement: .toolbar)`: a menu-bar
+    /// popover has no toolbar, so the modifier drew nothing and the `query` state was
+    /// unreachable — search was simply not available, and nothing failed to say so.
+    private var searchField: some View {
+        HStack(spacing: 6) {
+            Image(systemName: "magnifyingglass")
+                .font(.system(size: 11))
+                .foregroundStyle(.tertiary)
+
+            TextField(String(localized: "panel.search.prompt"), text: $query)
+                .textFieldStyle(.plain)
+                .font(.system(size: 12))
+
+            if !query.isEmpty {
+                Button {
+                    query = ""
+                } label: {
+                    Image(systemName: "xmark.circle.fill")
+                        .font(.system(size: 11))
+                        .foregroundStyle(.tertiary)
+                }
+                .buttonStyle(.borderless)
+            }
+        }
+        .padding(.horizontal, 8)
+        .padding(.vertical, 5)
+        .background(.quaternary.opacity(0.4), in: RoundedRectangle(cornerRadius: 6))
+        .padding(.horizontal, 12)
+        .padding(.bottom, 6)
+    }
 
     private var header: some View {
         HStack(spacing: 8) {

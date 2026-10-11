@@ -24,6 +24,23 @@ struct MacCVApp: App {
             exit(SelfTest.run())
         }
 
+        // `--render-preview <path> [language]` draws the panel with sample data and
+        // exits. It renders the real view from the real view code, so the README image
+        // cannot disagree with what the app draws, and it touches neither the clipboard
+        // nor the screen. See PreviewRenderer.
+        if let index = CommandLine.arguments.firstIndex(of: "--render-preview") {
+            let path = CommandLine.arguments.count > index + 1
+                ? CommandLine.arguments[index + 1]
+                : "preview.png"
+            let language = CommandLine.arguments.count > index + 2
+                ? CommandLine.arguments[index + 2]
+                : nil
+            let appearance = CommandLine.arguments.count > index + 3
+                ? PreviewRenderer.Appearance(rawValue: CommandLine.arguments[index + 3]) ?? .dark
+                : .dark
+            exit(PreviewRenderer.run(outputPath: path, language: language, appearance: appearance))
+        }
+
         let settings = AppSettings.load()
         let store = ClipboardStore()
         store.settings = settings

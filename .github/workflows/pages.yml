@@ -10,43 +10,8 @@ on:
       - ".github/workflows/pages.yml"
   # Called by the release workflow so latest.json is refreshed as part of a release.
   workflow_call:
-    inputs:
-      version:
-        description: "Version to publish into the feed"
-        required: true
-        type: string
-      tag:
-        description: "Release tag"
-        required: true
-        type: string
-      channel:
-        description: "stable or preview — decides which feed is written"
-        required: true
-        type: string
-      x86_64_url:
-        description: "Intel DMG URL"
-        required: true
-        type: string
-      x86_64_sha:
-        description: "Intel DMG SHA-256"
-        required: true
-        type: string
-      x86_64_size:
-        description: "Intel DMG size in bytes"
-        required: true
-        type: string
-      arm64_url:
-        description: "Apple silicon DMG URL"
-        required: true
-        type: string
-      arm64_sha:
-        description: "Apple silicon DMG SHA-256"
-        required: true
-        type: string
-      arm64_size:
-        description: "Apple silicon DMG size in bytes"
-        required: true
-        type: string
+    # No inputs: the feed is derived from the newest published release, so a caller only
+    # has to say "deploy".
   workflow_dispatch:
 
 permissions:
@@ -66,25 +31,19 @@ jobs:
     steps:
       - uses: actions/checkout@v7
 
-      - name: Write the update feed
-        # One feed per channel. A preview build must never reach ordinary users, and
-        # the only way to guarantee that is for it to land in a different document
-        # rather than behind a flag someone could get wrong.
-        if: ${{ inputs.version != '' }}
+      - name: Derive the update feed from the newest release
+        # Every deploy, not just releases. The feed lives in `docs/` to be served, and
+        # `docs/` is what Pages uploads — so a feed written once during a release was
+        # deleted by the next push to main, and installed copies began reporting a failed
+        # update check against the 404 page.
+        #
+        # Deriving it from the release's own assets on every deploy cannot drift: there is
+        # no stored copy that can describe a release which was never published.
         env:
-          VERSION: ${{ inputs.version }}
-          TAG: ${{ inputs.tag }}
-          CHANNEL: ${{ inputs.channel }}
-          ARM64_URL: ${{ inputs.arm64_url }}
-          ARM64_SHA: ${{ inputs.arm64_sha }}
-          ARM64_SIZE: ${{ inputs.arm64_size }}
-          X86_64_URL: ${{ inputs.x86_64_url }}
-          X86_64_SHA: ${{ inputs.x86_64_sha }}
-          X86_64_SIZE: ${{ inputs.x86_64_size }}
-        run: python3 Scripts/checks/write_feed.py
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: python3 Scripts/checks/publish_feed.py
 
       - name: Show the feed that will be published
-        if: ${{ inputs.version != '' }}
         run: |
           set -euo pipefail
           cat docs/latest.json 2>/dev/null || true

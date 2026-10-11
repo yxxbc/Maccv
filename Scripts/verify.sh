@@ -159,6 +159,18 @@ stage "clipboard content is never persisted" \
 stage "READMEs agree on the facts" \
   python3 Scripts/checks/readme_parity.py
 
+stage "README images exist" \
+  bash -c '
+    set -e
+    for image in assets/preview-en.png assets/preview-zh.png assets/logo.png assets/social-preview.png; do
+      [ -s "$image" ] || { echo "missing or empty: $image"; exit 1; }
+      # A README image is fetched on every page view, so size is a real cost.
+      kb=$(( $(stat -f%z "$image") / 1024 ))
+      [ "$kb" -lt 800 ] || { echo "$image is ${kb} KB, over the 800 KB budget"; exit 1; }
+    done
+    echo "4 images present and within budget"
+  '
+
 stage "AGENTS.md matches the repository" \
   python3 Scripts/checks/agents_doc.py
 
@@ -278,33 +290,14 @@ if [[ "$QUICK" == "0" ]]; then
   fi
 
   if [[ "$ALLOW_NETWORK" == "1" ]]; then
-    stage "update feed is reachable and valid" \
-      bash -c '
-        set -e
-        url="https://yxxbc.github.io/Maccv/latest.json"
-        body="$(curl -sS -m 20 "$url" || true)"
-
-        if [ -z "$body" ]; then
-          echo "$url returned nothing (404 before the first release is normal)"
-          exit 0
-        fi
-
-        # Reachable is not the same as usable: the engine refuses a manifest it cannot
-        # verify, so a reachable feed with a bad digest would still break every install.
-        printf %s "$body" | python3 -c "
-import json, sys
-f = json.load(sys.stdin)
-for key in (\"version\", \"latest-mac.yml\".replace(\"latest-mac.yml\", \"sha256\")):
-    assert f.get(key), f\"missing {key}\"
-d = f[\"sha256\"]
-assert len(d) == 64 and all(c in \"0123456789abcdef\" for c in d), \"bad sha256\"
-assert f[\"download_url\"].startswith(\"https://\"), \"non-HTTPS download_url\"
-archs = {x[\"arch\"] for x in f.get(\"downloads\", [])}
-assert archs == {\"arm64\", \"x86_64\"}, f\"unexpected architectures: {archs}\"
-print(f\"live feed: {f[\"version\"]}, {sorted(archs)}\")
-"
-      '
+    # Reachable is not the same as usable: the engine refuses a manifest it cannot
+    # verify, so a feed with a bad digest would break every install while the URL
+    # returned 200. Also tolerates absence and offline, since it is the only check
+    # that reaches the network.
+    stage "published update feed is usable" \
+      python3 Scripts/checks/live_feed.py
   fi
+
 else
   printf '%-42s %s\n' "app build" "SKIP (--quick)"
 fi

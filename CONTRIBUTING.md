@@ -13,7 +13,7 @@ For packaging, `pipx install dmgbuild` and
 git clone https://github.com/yxxbc/Maccv.git
 cd Maccv
 
-Scripts/verify.sh          # every check: 25 stages, the same command CI runs
+Scripts/verify.sh          # every check: 26 stages, the same command CI runs
 ./Scripts/verify.sh --quick   # Rust and the source checks only, no app build
 ```
 

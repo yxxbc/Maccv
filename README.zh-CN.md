@@ -31,23 +31,8 @@ macOS 菜单栏剪贴板管理器。它保留一次复制携带的**每一种格
 
 <br>
 
-<!--
-  预览占位
-
-  这里应该放一段录屏：复制一段富文本、打开面板、粘贴回原格式。控制在 4 MB 以内，
-  存为 assets/preview.gif，然后把下面这段替换成：
-
-    <div align="center">
-      <img src="assets/preview.gif" alt="复制一段带格式的文本，粘贴回原格式" width="720">
-    </div>
-
-  静帧无法替代「面板打开、内容落进另一个应用」这个过程的演示。
--->
-
 <div align="center">
-  <img src="assets/preview-placeholder.png" alt="MacCV 面板预览 —— 此处将放置录屏" width="720">
-  <br>
-  <sub><i>预览制作中 —— 菜单栏面板、实时预览与搜索。</i></sub>
+  <img src="assets/preview-zh.png" alt="MacCV 面板：富文本、图片、三个文件的复制，以及打码后的 API 密钥" width="720">
 </div>
 
 <br>

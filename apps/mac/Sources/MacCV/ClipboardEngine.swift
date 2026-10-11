@@ -29,10 +29,16 @@ enum ClipKind: String, Sendable, CaseIterable {
     case other
 
     /// SF Symbol used in the list rows.
+    ///
+    /// Every name here must render as an *icon* in every language. `textformat` was
+    /// used for rich text and looks right in English ("Aa"), but SF Symbols localises
+    /// it: in a CJK interface it draws the word itself, which filled the 18-point
+    /// column with text that then truncated. `doc.richtext` is a picture, so it is the
+    /// same in every locale.
     var symbolName: String {
         switch self {
         case .text: "text.alignleft"
-        case .richText: "textformat"
+        case .richText: "doc.richtext"
         case .image: "photo"
         case .files: "folder"
         case .url: "link"

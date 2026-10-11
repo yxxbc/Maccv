@@ -278,6 +278,15 @@ final class ClipboardStore {
         }
     }
 
+    /// Replaces history with fixed content, for the preview renderer.
+    ///
+    /// Guarded to the preview path: it exists so the README image can be regenerated
+    /// from the real view code, and nothing else should be able to inject history.
+    func loadSampleHistory(_ samples: [ClipSnapshot]) {
+        history = samples
+        current = samples.first
+    }
+
     /// Copies an entry back to the clipboard and reports that it happened.
     ///
     /// Returns whether the copy succeeded, so the row can show a brief confirmation

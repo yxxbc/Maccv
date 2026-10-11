@@ -319,6 +319,25 @@ Allowing tags rather than pointing the workflow at `main` is deliberate: the sit
 should be updated from the commit the release was built from, not from whatever
 `main` happens to contain.
 
+### The update feed is generated at deploy time
+
+`docs/latest.json` is **not committed**. It is derived on every Pages deploy by
+`Scripts/checks/publish_feed.py`, from the newest published release's `SHA256SUMS` and
+asset list.
+
+This is not a stylistic choice. The feed has to sit in `docs/` to be served, and `docs/`
+is exactly what Pages uploads — so a feed written once during a release was **deleted by
+the next push to `main`**. The release published, the site redeployed from the new commit
+without the feed, and every installed copy began reporting a failed update check against
+a 404 page that looks like a network problem.
+
+Deriving it on every deploy makes that impossible: there is no stored copy to go stale or
+be deleted, and no way for the feed to describe a release that was never published.
+`Scripts/checks/feeds.py` validates it whenever it exists, including during a deploy.
+
+The consequence to know about: **changing the feed's shape means changing
+`publish_feed.py`**, since that is the only thing that writes it.
+
 ### Verify the feed after the first release
 
 ```bash

@@ -302,20 +302,12 @@ jobs:
   # Refresh the website's feeds so installed copies see this release. A separate
   # job because it needs Pages permissions the release job must not have.
   website:
-    name: Update the site's release feed
+    name: Refresh the site and its update feed
     needs: release
     uses: ./.github/workflows/pages.yml
     permissions:
       contents: read
       pages: write
       id-token: write
-    with:
-      version: ${{ needs.release.outputs.version }}
-      tag: ${{ needs.release.outputs.tag }}
-      channel: ${{ needs.release.outputs.channel }}
-      x86_64_url: ${{ needs.release.outputs.x86_64_url }}
-      x86_64_sha: ${{ needs.release.outputs.x86_64_sha }}
-      x86_64_size: ${{ needs.release.outputs.x86_64_size }}
-      arm64_url: ${{ needs.release.outputs.arm64_url }}
-      arm64_sha: ${{ needs.release.outputs.arm64_sha }}
-      arm64_size: ${{ needs.release.outputs.arm64_size }}
+    # No inputs to pass: the workflow derives the feed from the release that was just
+    # published, so there is nothing for the caller to keep in step.
