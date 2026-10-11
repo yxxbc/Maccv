@@ -9,7 +9,12 @@ fn main() {
     let crate_dir = PathBuf::from(std::env::var("CARGO_MANIFEST_DIR").expect("manifest dir"));
     let out = crate_dir.join("include/maccv.h");
 
-    println!("cargo:rerun-if-changed=src/lib.rs");
+    // Watch the whole source directory, not just lib.rs. A new module under
+    // `src/` changes the exported surface, and a narrower watch left the
+    // generated header stale without any warning — the header then disagreed
+    // with the compiled library, and the mismatch only showed up at link time
+    // in a C caller.
+    println!("cargo:rerun-if-changed=src");
     println!("cargo:rerun-if-changed=cbindgen.toml");
 
     let config = cbindgen::Config::from_root_or_default(&crate_dir);

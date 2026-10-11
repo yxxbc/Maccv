@@ -113,6 +113,48 @@ typedef enum MaccvAccessBehavior {
 } MaccvAccessBehavior;
 
 /**
+ * Whether this process may inject events into other applications.
+ */
+typedef enum MaccvAccessibilityPermission {
+  /**
+   * Granted: synthetic typing will be delivered.
+   */
+  MACCV_ACCESSIBILITY_PERMISSION_GRANTED = 0,
+  /**
+   * Not granted: synthetic typing will be posted and silently dropped.
+   */
+  MACCV_ACCESSIBILITY_PERMISSION_NOT_GRANTED = 1,
+} MaccvAccessibilityPermission;
+
+/**
+ * Replaces a redaction mode with its C representation.
+ */
+typedef enum MaccvRedactionMode {
+  /**
+   * Mask the entire value.
+   */
+  MACCV_REDACTION_MODE_FULL = 0,
+  /**
+   * Keep a recognisable head and tail.
+   */
+  MACCV_REDACTION_MODE_PARTIAL = 1,
+} MaccvRedactionMode;
+
+/**
+ * Which releases to consider.
+ */
+typedef enum MaccvUpdateChannel {
+  /**
+   * Stable releases only.
+   */
+  MACCV_UPDATE_CHANNEL_STABLE = 0,
+  /**
+   * Include pre-releases.
+   */
+  MACCV_UPDATE_CHANNEL_PRERELEASE = 1,
+} MaccvUpdateChannel;
+
+/**
  * A borrowed, NUL-terminated UTF-8 string.
  *
  * `len` excludes the terminating NUL, so the string may legally contain none and
@@ -213,6 +255,94 @@ typedef struct MaccvSnapshot {
  * [`maccv_watch_start`]. Must be safe to call from a non-main thread.
  */
 typedef void (*MaccvChangeCallback)(int64_t change_count, void *context);
+
+/**
+ * The result of masking a string. Owned by the caller; release with
+ * [`maccv_redacted_free`].
+ */
+typedef struct MaccvRedacted {
+  /**
+   * The masked text.
+   */
+  struct MaccvString text;
+  /**
+   * Comma-separated kind identifiers, e.g. `card-number,email`.
+   */
+  struct MaccvString kinds;
+  /**
+   * How many spans were masked.
+   */
+  uintptr_t match_count;
+  /**
+   * Whether anything was masked at all.
+   */
+  bool was_redacted;
+  /**
+   * Whether the content must not be recorded, because a source app marked it.
+   */
+  bool skip_recording;
+} MaccvRedacted;
+
+/**
+ * The outcome of an update check. Owned; release with [`maccv_update_result_free`].
+ */
+typedef struct MaccvUpdateResult {
+  /**
+   * 0 = up to date, 1 = update available, 2 = check failed.
+   */
+  uint8_t status;
+  /**
+   * The newest version, when one was found.
+   */
+  struct MaccvString version;
+  /**
+   * Direct download URL, when one was found.
+   */
+  struct MaccvString download_url;
+  /**
+   * Lowercase hex SHA-256 of the archive.
+   */
+  struct MaccvString sha256;
+  /**
+   * Archive size in bytes.
+   */
+  uint64_t size;
+  /**
+   * Release notes, in Markdown.
+   */
+  struct MaccvString notes;
+  /**
+   * Why the check failed, when it did.
+   */
+  struct MaccvString reason;
+} MaccvUpdateResult;
+
+/**
+ * What a completed download produced. Owned; release with
+ * [`maccv_staged_update_free`].
+ */
+typedef struct MaccvStagedUpdate {
+  /**
+   * The verified archive on disk.
+   */
+  struct MaccvString archive_path;
+  /**
+   * The extracted `.app`, when extraction succeeded.
+   */
+  struct MaccvString app_path;
+  /**
+   * Signature validity.
+   */
+  bool signature_valid;
+  /**
+   * Whether the quarantine attribute was cleared.
+   */
+  bool dequarantined;
+  /**
+   * Failure detail, when the status is `Failed`.
+   */
+  struct MaccvString reason;
+} MaccvStagedUpdate;
 
 #ifdef __cplusplus
 extern "C" {
@@ -461,6 +591,344 @@ MaccvWatch *maccv_watch_start(const MaccvPasteboard *pb, uint64_t min_interval_u
  * accepted and ignored.
  */
 void maccv_watch_stop(MaccvWatch *watch);
+
+/**
+ * Reads the Accessibility permission state without prompting.
+ *
+ * Never shows a dialog, so it is safe to call when deciding what the UI should
+ * offer.
+ */
+enum MaccvAccessibilityPermission maccv_secure_input_permission(void);
+
+/**
+ * Opens the System Settings pane where the Accessibility permission is granted.
+ *
+ * The engine cannot grant this itself — by design, only the user can — so the
+ * best it can do is take them to the right place.
+ */
+enum MaccvError maccv_secure_input_open_settings(void);
+
+/**
+ * Types `text` into the frontmost application without touching any pasteboard.
+ *
+ * This is how MacCV delivers content that other applications cannot observe: the
+ * text never exists in a shared channel, only as synthetic keystrokes addressed
+ * to whichever app has focus.
+ *
+ * Requires the Accessibility permission; returns
+ * [`MaccvError::MaccvErrorAccessDenied`] without it.
+ *
+ * `text` is **not** NUL-terminated and `len` bytes are read, so the payload may
+ * contain NULs. `per_key_delay_us` is the pause between keystrokes — pass 0 for
+ * the fastest delivery, or a few milliseconds for apps that drop fast input.
+ *
+ * # Safety
+ *
+ * `text` must point at `len` readable bytes.
+ */
+enum MaccvError maccv_secure_input_type(const uint8_t *text, uintptr_t len, uint64_t per_key_delay_us);
+
+/**
+ * Types at most `max_chars` characters, reporting what was skipped.
+ *
+ * Synthetic typing runs at human speed, so an enormous string would appear to
+ * hang. This bounds the attempt and tells the caller what was left out, so the
+ * UI can say so rather than silently truncating.
+ *
+ * `out_delivered` and `out_skipped` receive the counts; either may be null.
+ *
+ * # Safety
+ *
+ * `text` must point at `len` readable bytes. The out-parameters, if non-null,
+ * must be valid and writable.
+ */
+enum MaccvError maccv_secure_input_type_limited(const uint8_t *text, uintptr_t len, uintptr_t max_chars, uint64_t per_key_delay_us, uintptr_t *out_delivered, uintptr_t *out_skipped);
+
+/**
+ * Posts a Cmd+V keystroke to the frontmost application.
+ *
+ * The pasteboard-based path: content must already have been written with
+ * `maccv_pasteboard_write_*`. Use this when the user asked to paste and you do
+ * not want to require them to switch apps and press ⌘V themselves.
+ *
+ * Unlike [`maccv_secure_input_type`], this leaves the content readable by every
+ * application on the Mac. That is inherent to the pasteboard, not a limitation of
+ * this function.
+ */
+enum MaccvError maccv_secure_input_paste(void);
+
+/**
+ * The maximum number of characters worth typing synthetically.
+ *
+ * The UI uses this to decide whether to offer secure paste at all, rather than
+ * starting a delivery that would take minutes.
+ */
+uintptr_t maccv_secure_input_recommended_limit(void);
+
+/**
+ * Masks sensitive values in `text`.
+ *
+ * Use `mode` to choose how much to leave visible. `MaccvRedactionMode_Full` is
+ * the safer default.
+ *
+ * On success `*out` receives an owned result to release with
+ * [`maccv_redacted_free`]. Text with nothing sensitive in it still succeeds, with
+ * `was_redacted` false.
+ *
+ * # Safety
+ *
+ * `text` must point at `len` readable bytes; `out` must be valid and writable.
+ */
+enum MaccvError maccv_redact(const uint8_t *text, uintptr_t len, enum MaccvRedactionMode mode, struct MaccvRedacted **out);
+
+/**
+ * Releases a redaction result. Null is accepted and ignored.
+ *
+ * # Safety
+ *
+ * `redacted` must come from [`maccv_redact`] and not be used again.
+ */
+void maccv_redacted_free(struct MaccvRedacted *redacted);
+
+/**
+ * The masked text. Valid until the result is freed.
+ *
+ * # Safety
+ *
+ * `redacted` must be a live result from [`maccv_redact`].
+ */
+struct MaccvString maccv_redacted_text(const struct MaccvRedacted *redacted);
+
+/**
+ * The comma-separated kind identifiers. Valid until the result is freed.
+ *
+ * # Safety
+ *
+ * `redacted` must be a live result from [`maccv_redact`].
+ */
+struct MaccvString maccv_redacted_kinds(const struct MaccvRedacted *redacted);
+
+/**
+ * How many spans were masked.
+ *
+ * # Safety
+ *
+ * `redacted` must be a live result from [`maccv_redact`].
+ */
+uintptr_t maccv_redacted_match_count(const struct MaccvRedacted *redacted);
+
+/**
+ * Whether anything was masked.
+ *
+ * # Safety
+ *
+ * `redacted` must be a live result from [`maccv_redact`].
+ */
+bool maccv_redacted_was_redacted(const struct MaccvRedacted *redacted);
+
+/**
+ * Whether the content must be kept out of history entirely.
+ *
+ * True only when a source application explicitly marked the content concealed,
+ * transient, or as a private key — never for a heuristic guess.
+ *
+ * # Safety
+ *
+ * `redacted` must be a live result from [`maccv_redact`].
+ */
+bool maccv_redacted_should_skip_recording(const struct MaccvRedacted *redacted);
+
+/**
+ * Checks the update feed for a newer release.
+ *
+ * Does no downloading and changes nothing on disk, so it is safe to run on a
+ * timer or from a menu item. `manifest_url` may be null to use the official feed.
+ *
+ * On success `*out` receives an owned result to release with
+ * [`maccv_update_result_free`]. A failure to reach the feed is reported through
+ * the result's `status`, not as an error code, because "no network" is a normal
+ * condition rather than a bug.
+ *
+ * # Safety
+ *
+ * `current_version` must be a NUL-terminated UTF-8 string. `manifest_url` may be
+ * null. `out` must be valid and writable.
+ */
+enum MaccvError maccv_update_check(const char *current_version, const char *manifest_url, enum MaccvUpdateChannel channel, struct MaccvUpdateResult **out);
+
+/**
+ * 0 = up to date, 1 = update available, 2 = check failed.
+ *
+ * # Safety
+ *
+ * `result` must be live from [`maccv_update_check`].
+ */
+uint8_t maccv_update_result_status(const struct MaccvUpdateResult *result);
+
+/**
+ * The newest version, if any.
+ *
+ * # Safety
+ *
+ * `result` must be live from [`maccv_update_check`].
+ */
+struct MaccvString maccv_update_result_version(const struct MaccvUpdateResult *result);
+
+/**
+ * The download URL, if any.
+ *
+ * # Safety
+ *
+ * `result` must be live from [`maccv_update_check`].
+ */
+struct MaccvString maccv_update_result_download_url(const struct MaccvUpdateResult *result);
+
+/**
+ * The release notes, in Markdown.
+ *
+ * # Safety
+ *
+ * `result` must be live from [`maccv_update_check`].
+ */
+struct MaccvString maccv_update_result_notes(const struct MaccvUpdateResult *result);
+
+/**
+ * Why the check failed, if it did.
+ *
+ * # Safety
+ *
+ * `result` must be live from [`maccv_update_check`].
+ */
+struct MaccvString maccv_update_result_reason(const struct MaccvUpdateResult *result);
+
+/**
+ * Releases an update result. Null is accepted and ignored.
+ *
+ * # Safety
+ *
+ * `result` must come from [`maccv_update_check`] and not be used again.
+ */
+void maccv_update_result_free(struct MaccvUpdateResult *result);
+
+/**
+ * Downloads an update and verifies it before making it installable.
+ *
+ * The steps run in this order, and the order is the point:
+ *
+ * 1. download to `staging_dir`
+ * 2. verify the SHA-256 from the feed — a mismatch deletes the file and stops
+ * 3. extract
+ * 4. verify the code signature with `spctl`
+ * 5. **only then** clear `com.apple.quarantine`
+ * 6. report which of those succeeded
+ *
+ * Step 5 is what prevents the "MacCV is damaged and can't be opened" dialog that
+ * otherwise appears when an app replaces itself with a downloaded bundle: macOS
+ * inherits the quarantine attribute from the parent, and an app cannot launch a
+ * quarantined, non-notarized replacement.
+ *
+ * This function does not replace the running bundle. It leaves a verified,
+ * launchable `.app` in `staging_dir` and reports its path so the UI can offer to
+ * reveal it. Swapping an executable while it runs is where correctness gets
+ * genuinely hard, and a half-done swap is worse than asking the user to drag one
+ * file.
+ *
+ * # Safety
+ *
+ * All string arguments must be NUL-terminated UTF-8. `out` must be valid and
+ * writable.
+ */
+enum MaccvError maccv_update_download(const char *download_url, const char *sha256, const char *version, const char *staging_dir, struct MaccvStagedUpdate **out);
+
+/**
+ * The archive path, when the download succeeded.
+ *
+ * # Safety
+ *
+ * `staged` must be live from [`maccv_update_download`].
+ */
+struct MaccvString maccv_staged_update_archive_path(const struct MaccvStagedUpdate *staged);
+
+/**
+ * The extracted `.app` path, when extraction succeeded.
+ *
+ * # Safety
+ *
+ * `staged` must be live from [`maccv_update_download`].
+ */
+struct MaccvString maccv_staged_update_app_path(const struct MaccvStagedUpdate *staged);
+
+/**
+ * Whether the code signature validated.
+ *
+ * # Safety
+ *
+ * `staged` must be live from [`maccv_update_download`].
+ */
+bool maccv_staged_update_signature_valid(const struct MaccvStagedUpdate *staged);
+
+/**
+ * Whether the quarantine attribute was cleared.
+ *
+ * False alongside a valid signature means the bundle will still be blocked at
+ * launch, so the UI must not present it as ready.
+ *
+ * # Safety
+ *
+ * `staged` must be live from [`maccv_update_download`].
+ */
+bool maccv_staged_update_dequarantined(const struct MaccvStagedUpdate *staged);
+
+/**
+ * The failure detail, when the download failed.
+ *
+ * # Safety
+ *
+ * `staged` must be live from [`maccv_update_download`].
+ */
+struct MaccvString maccv_staged_update_reason(const struct MaccvStagedUpdate *staged);
+
+/**
+ * Releases a staged-update result. Null is accepted and ignored.
+ *
+ * # Safety
+ *
+ * `staged` must come from [`maccv_update_download`] and not be used again.
+ */
+void maccv_staged_update_free(struct MaccvStagedUpdate *staged);
+
+/**
+ * Whether a path carries the `com.apple.quarantine` attribute.
+ *
+ * Exposed so the UI can explain why an app will not launch, rather than leaving
+ * the user with the system's "damaged" message.
+ *
+ * # Safety
+ *
+ * `path` must be a NUL-terminated UTF-8 string.
+ */
+bool maccv_path_is_quarantined(const char *path);
+
+/**
+ * Compares two dotted version strings. -1, 0 or 1.
+ *
+ * # Safety
+ *
+ * Both arguments must be NUL-terminated UTF-8 strings.
+ */
+int32_t maccv_compare_versions(const char *left, const char *right);
+
+/**
+ * Releases a string allocated by any of the owning `MaccvString` returns.
+ *
+ * Provided under this name as well so callers working only with the updater and
+ * redaction APIs do not need to know about the pasteboard surface.
+ *
+ * # Safety
+ *
+ * `value` must be an owned string from this library, not a `'static` one.
+ */
+void maccv_owned_string_free(struct MaccvString value);
 
 #ifdef __cplusplus
 }  // extern "C"

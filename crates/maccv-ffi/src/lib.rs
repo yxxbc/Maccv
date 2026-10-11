@@ -40,6 +40,8 @@ use std::time::Duration;
 
 use maccv_core::{ChangeCount, Pasteboard, Snapshot, WatchConfig, WatchHandle, WellKnownType};
 
+pub mod updates;
+
 // ---------------------------------------------------------------------------
 // Scalar and string types
 // ---------------------------------------------------------------------------
@@ -114,6 +116,15 @@ impl From<maccv_core::AccessBehavior> for MaccvAccessBehavior {
     }
 }
 
+/// Backing byte for every empty string this library hands out.
+///
+/// A `static` rather than a `c""` literal inside the const: a literal's address
+/// is not guaranteed to be identical across codegen units, and
+/// [`MaccvString::free_owned`] relies on recognising the sentinel by address. With
+/// a literal, a field written in one unit compared unequal to the same const read
+/// in another, so the guard failed and `free()` was handed static read-only memory.
+static EMPTY_C_STRING: [u8; 1] = [0];
+
 /// A borrowed, NUL-terminated UTF-8 string.
 ///
 /// `len` excludes the terminating NUL, so the string may legally contain none and
@@ -129,10 +140,30 @@ pub struct MaccvString {
 
 impl MaccvString {
     /// An empty string. Points at a static NUL so the pointer is never null.
-    const EMPTY: Self = Self {
-        ptr: c"".as_ptr(),
+    ///
+    /// This is a *borrowed* sentinel, not an allocation. Anything releasing an
+    /// owned string must go through [`MaccvString::free_owned`], which recognises
+    /// this pointer and leaves it alone — calling `CString::from_raw` on it would
+    /// hand a read-only static address to `free()` and crash the process.
+    pub(crate) const EMPTY: Self = Self {
+        ptr: EMPTY_C_STRING.as_ptr().cast(),
         len: 0,
     };
+
+    /// Releases a string this library allocated, ignoring the static sentinel.
+    ///
+    /// Safe to call on any `MaccvString` the API produced: an owned empty string
+    /// (`owned("")`) has its own heap allocation and *is* freed, while the
+    /// `EMPTY` sentinel is skipped.
+    pub(crate) fn free_owned(self) {
+        if self.ptr.is_null() || self.ptr == Self::EMPTY.ptr {
+            return;
+        }
+        // SAFETY: the caller only ever reaches this with a pointer that came from
+        // `CString::into_raw`, which the guard above establishes by excluding the
+        // one pointer that did not.
+        drop(unsafe { CString::from_raw(self.ptr.cast_mut().cast()) });
+    }
 
     /// Wraps a `'static` string that the caller must not free.
     fn from_static(value: &'static str) -> Self {
@@ -151,7 +182,7 @@ impl MaccvString {
     }
 
     /// Allocates an owned string. Free it with [`maccv_string_free`].
-    fn owned(value: &str) -> Self {
+    pub(crate) fn owned(value: &str) -> Self {
         match CString::new(value) {
             Ok(cstring) => {
                 let len = cstring.as_bytes().len();
@@ -179,7 +210,7 @@ impl MaccvString {
     /// # Safety
     ///
     /// `self.ptr` must point at `self.len` readable bytes followed by a NUL.
-    unsafe fn as_str(self) -> Option<&'static str> {
+    pub(crate) unsafe fn as_str(self) -> Option<&'static str> {
         if self.ptr.is_null() {
             return None;
         }
@@ -450,16 +481,26 @@ thread_local! {
     static LAST_ERROR_MESSAGE: RefCell<Option<CString>> = const { RefCell::new(None) };
 }
 
-fn record_error(err: MaccvError, detail: Option<String>) {
+pub(crate) fn record_error(err: MaccvError, detail: Option<String>) {
     LAST_ERROR.with(|slot| *slot.borrow_mut() = Some(err));
     LAST_ERROR_MESSAGE.with(|slot| {
         *slot.borrow_mut() = detail.and_then(|msg| CString::new(msg).ok());
     });
 }
 
-fn record_ok() {
+pub(crate) fn record_ok() {
     LAST_ERROR.with(|slot| *slot.borrow_mut() = None);
     LAST_ERROR_MESSAGE.with(|slot| *slot.borrow_mut() = None);
+}
+
+/// Records a core error and returns its C status code.
+///
+/// Used by the modules outside this file, which surface errors directly rather
+/// than through `status`'s pass-through form.
+pub(crate) fn record_core_error(error: maccv_core::Error) -> MaccvError {
+    let code = MaccvError::from(error.clone());
+    record_error(code, Some(error.to_string()));
+    code
 }
 
 /// Converts a core result into an FFI status code, recording any error.
@@ -530,11 +571,7 @@ pub extern "C" fn maccv_last_error_message() -> MaccvString {
 /// `maccv_pasteboard_name`, and must not be freed twice.
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn maccv_string_free(value: MaccvString) {
-    if value.ptr.is_null() {
-        return;
-    }
-    // SAFETY: the caller guarantees the pointer came from `CString::into_raw`.
-    drop(unsafe { CString::from_raw(value.ptr.cast_mut().cast()) });
+    value.free_owned();
 }
 
 /// Opens the system-wide general pasteboard.
@@ -1039,7 +1076,7 @@ pub unsafe extern "C" fn maccv_watch_stop(watch: *mut MaccvWatch) {
 /// # Safety
 ///
 /// `ptr` must be null or point at a NUL-terminated UTF-8 string.
-unsafe fn cstr_to_str<'a>(ptr: *const c_char) -> Option<&'a str> {
+pub(crate) unsafe fn cstr_to_str<'a>(ptr: *const c_char) -> Option<&'a str> {
     if ptr.is_null() {
         return None;
     }
@@ -1050,7 +1087,7 @@ unsafe fn cstr_to_str<'a>(ptr: *const c_char) -> Option<&'a str> {
 /// # Safety
 ///
 /// `ptr` must be null or point at `len` readable bytes.
-unsafe fn bytes_to_slice<'a>(ptr: *const u8, len: usize) -> Option<&'a [u8]> {
+pub(crate) unsafe fn bytes_to_slice<'a>(ptr: *const u8, len: usize) -> Option<&'a [u8]> {
     if ptr.is_null() {
         return None;
     }

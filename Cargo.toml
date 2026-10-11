@@ -18,7 +18,10 @@ maccv-core = { path = "crates/maccv-core", version = "0.1.0" }
 objc2 = "0.6"
 objc2-foundation = { version = "0.3", default-features = false }
 objc2-app-kit = { version = "0.3", default-features = false }
+objc2-core-foundation = { version = "0.3", default-features = false, features = ["std"] }
+objc2-core-graphics = { version = "0.3", default-features = false }
 bitflags = "2"
+libc = "0.2"
 
 # Development profile: keep debug builds fast to compile but still debuggable.
 [profile.dev]

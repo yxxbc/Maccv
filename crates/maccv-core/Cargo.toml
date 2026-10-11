@@ -15,6 +15,7 @@ readme = "../../README.md"
 [dependencies]
 objc2 = { workspace = true }
 bitflags = { workspace = true }
+libc = { workspace = true }
 objc2-foundation = { workspace = true, features = [
     "std",
     "NSString",
@@ -33,6 +34,14 @@ objc2-foundation = { workspace = true, features = [
     "NSKeyedArchiver",
     "NSThread",
     "NSEnumerator",
+] }
+objc2-core-foundation = { workspace = true }
+objc2-core-graphics = { workspace = true, features = [
+    "CGEvent",
+    "CGEventSource",
+    "CGEventTypes",
+    # `CGEvent::new_keyboard_event` is gated on this.
+    "CGRemoteOperation",
 ] }
 objc2-app-kit = { workspace = true, features = [
     "NSPasteboard",

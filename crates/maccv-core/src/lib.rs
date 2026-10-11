@@ -56,7 +56,10 @@ compile_error!("maccv-core only supports macOS: it wraps AppKit's NSPasteboard."
 mod content;
 mod error;
 mod pasteboard;
+mod redaction;
+mod secure_input;
 mod types;
+mod updater;
 
 pub use content::{
     ColorValue, Content, ContentKind, FileList, ImageData, RichText, SoundData, Text, WebLoc,
@@ -66,7 +69,14 @@ pub use pasteboard::{
     AccessBehavior, ChangeCount, Pasteboard, PasteboardName, Representation, Snapshot,
     SnapshotItem, WatchConfig, WatchHandle,
 };
+pub use redaction::{MASK, Redacted, RedactionMode, SensitiveKind, SensitiveMatch, detect, redact};
+pub use secure_input::{AccessibilityPermission, SecureInput, TypeReport, TypingCadence};
 pub use types::{PasteboardType, WellKnownType};
+pub use updater::{
+    DEFAULT_MANIFEST_URL, QUARANTINE_ATTR, ReleaseManifest, StagedUpdate, UpdateChannel,
+    UpdatePolicy, UpdateStatus, check_for_update, compare_versions, download_and_verify,
+    has_quarantine, quarantine_paths, read_quarantine, remove_quarantine, sha256_file,
+};
 
 /// Crate version, sourced from `Cargo.toml`.
 pub const VERSION: &str = env!("CARGO_PKG_VERSION");
