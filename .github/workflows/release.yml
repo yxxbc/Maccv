@@ -1,5 +1,14 @@
 name: Release
 
+# Publishes a release from a tag.
+#
+# Two things this workflow is careful about:
+#
+# 1. It never publishes from a branch. A tag is the only trigger, so what is
+#    released is exactly what was tagged and verified.
+# 2. It refuses to publish a stable release for a version that still looks like a
+#    preview (a hyphenated pre-release), because the stable feed is what every
+#    ordinary user reads.
 on:
   push:
     tags:
@@ -7,7 +16,7 @@ on:
   workflow_dispatch:
     inputs:
       tag:
-        description: "Existing tag to publish (e.g. v0.1.0)"
+        description: "Existing tag to publish (e.g. v0.2.0)"
         required: true
         type: string
 
@@ -21,21 +30,20 @@ jobs:
   release:
     name: Publish release
     runs-on: xcode-27
-    # Consumed by the `website` job below.
     outputs:
       version: ${{ steps.version.outputs.version }}
       tag: ${{ steps.version.outputs.tag }}
-      download_url: ${{ steps.package.outputs.download_url }}
-      sha256: ${{ steps.package.outputs.sha256 }}
-      size: ${{ steps.package.outputs.size }}
-      prerelease: ${{ steps.version.outputs.prerelease }}
+      channel: ${{ steps.version.outputs.channel }}
+      x86_64_url: ${{ steps.package.outputs.x86_64_url }}
+      x86_64_sha: ${{ steps.package.outputs.x86_64_sha }}
+      x86_64_size: ${{ steps.package.outputs.x86_64_size }}
+      arm64_url: ${{ steps.package.outputs.arm64_url }}
+      arm64_sha: ${{ steps.package.outputs.arm64_sha }}
+      arm64_size: ${{ steps.package.outputs.arm64_size }}
     steps:
       - uses: actions/checkout@v7
-        with:
-          # The notes come from CHANGELOG.md, so the working tree is enough.
-          fetch-depth: 1
 
-      - name: Resolve the version being released
+      - name: Resolve the version and channel
         id: version
         run: |
           set -euo pipefail
@@ -45,49 +53,60 @@ jobs:
             TAG="${GITHUB_REF_NAME}"
           fi
           VERSION="${TAG#v}"
-          # 0.x and hyphenated tags are pre-releases, by the same rule the release
-          # is published under.
-          if [[ "$VERSION" == *-* || "$VERSION" == 0.* ]]; then
-            PRERELEASE=true
+
+          # A hyphen means a pre-release, which goes to the preview feed and is
+          # marked as such on GitHub. This is what keeps a test build away from
+          # ordinary users.
+          if [[ "$VERSION" == *-* ]]; then
+            CHANNEL="preview"
           else
-            PRERELEASE=false
+            CHANNEL="stable"
           fi
+
           {
             echo "tag=$TAG"
             echo "version=$VERSION"
-            echo "prerelease=$PRERELEASE"
+            echo "channel=$CHANNEL"
           } >> "$GITHUB_OUTPUT"
-          echo "Releasing $TAG (version $VERSION)"
+          echo "Releasing $TAG as a $CHANNEL build"
 
       - name: Fail early if the changelog has nothing for this version
         # A release with no notes is a release nobody can read. Stop before the
-        # expensive build so the fix is a changelog edit, not a re-run.
+        # build so the fix is a changelog edit, not a re-run.
         run: ./Scripts/changelog-notes.sh --check "${{ steps.version.outputs.version }}"
+
+      - name: Confirm the manifests carry the released version
+        env:
+          VERSION: ${{ steps.version.outputs.version }}
+        run: |
+          set -euo pipefail
+          python3 Scripts/checks/version_consistency.py
+          MANIFEST=$(python3 Scripts/checks/print_version.py)
+          if [[ "$MANIFEST" != "$VERSION" ]]; then
+            echo "::error::Cargo.toml says $MANIFEST but the tag says $VERSION. Run Scripts/bump-version.sh and re-tag."
+            exit 1
+          fi
+          echo "Manifests match the tag ($MANIFEST)."
 
       - name: Install Rust toolchain
         uses: dtolnay/rust-toolchain@stable
         with:
+          # Both slices are needed for the separate per-architecture packages.
           targets: aarch64-apple-darwin,x86_64-apple-darwin
 
-      - name: Install XcodeGen
-        run: brew install xcodegen
+      - name: Install build tools
+        run: |
+          set -euo pipefail
+          brew install xcodegen
+          # dmgbuild writes the .DS_Store itself instead of driving Finder over
+          # AppleEvents, so it does not time out on a headless runner.
+          pipx install dmgbuild
+          python3 -m pip install --quiet --break-system-packages Pillow
 
       - name: Cache cargo artifacts
         uses: Swatinem/rust-cache@v2
         with:
           key: release
-
-      - name: Confirm the crates carry the released version
-        # Guards against tagging without bumping Cargo.toml.
-        run: |
-          set -euo pipefail
-          MANIFEST_VERSION=$(cargo metadata --no-deps --format-version 1 \
-            | python3 -c 'import json,sys; print(json.load(sys.stdin)["packages"][0]["version"])')
-          if [[ "$MANIFEST_VERSION" != "${{ steps.version.outputs.version }}" ]]; then
-            echo "::error::Cargo.toml says $MANIFEST_VERSION but the tag says ${{ steps.version.outputs.version }}. Bump the version and re-tag."
-            exit 1
-          fi
-          echo "Cargo.toml matches the tag ($MANIFEST_VERSION)."
 
       - name: Test the engine
         run: cargo test --workspace
@@ -96,74 +115,113 @@ jobs:
         working-directory: apps/mac
         run: xcodegen generate
 
-      - name: Build a universal app
-        # A release should run on both Apple silicon and Intel Macs.
-        working-directory: apps/mac
-        env:
-          MACCV_ARCH: universal
-        run: |
-          set -o pipefail
-          xcodebuild -project MacCV.xcodeproj \
-            -scheme MacCV \
-            -configuration Release \
-            -destination 'platform=macOS' \
-            ARCHS="arm64 x86_64" \
-            ONLY_ACTIVE_ARCH=NO \
-            build
-
-      - name: Package the app
+      # -----------------------------------------------------------------------
+      # Build each architecture as its own app, then package each as its own DMG.
+      #
+      # Per-architecture rather than one universal DMG: a universal image is about
+      # twice the size for every user, and the extra slice is dead weight on both
+      # kinds of Mac. The feed tells each machine which one to fetch.
+      # -----------------------------------------------------------------------
+      - name: Build and package each architecture
         id: package
+        env:
+          VERSION: ${{ steps.version.outputs.version }}
+          TAG: ${{ steps.version.outputs.tag }}
+          REPO: ${{ github.repository }}
         run: |
           set -euo pipefail
-          APP=$(find ~/Library/Developer/Xcode/DerivedData -path '*Release/MacCV.app' -maxdepth 6 | head -1)
-          if [[ -z "$APP" ]]; then
-            echo "::error::MacCV.app was not produced"
-            exit 1
-          fi
+          mkdir -p dist
 
-          # Verify the universal build actually carries both slices.
-          lipo -info "$APP/Contents/MacOS/MacCV"
+          for ARCH in arm64 x86_64; do
+            echo "=== $ARCH ==="
 
-          ARCHIVE="MacCV-${{ steps.version.outputs.version }}.zip"
-          # ditto preserves the bundle structure and resource forks, unlike zip.
-          ditto -c -k --keepParent "$APP" "$ARCHIVE"
+            # ARCHS pinned per invocation: the destination alone can narrow it to
+            # the host, which would ship the same slice twice.
+            xcodebuild -project apps/mac/MacCV.xcodeproj -scheme MacCV \
+              -configuration Release \
+              -destination 'generic/platform=macOS' \
+              ARCHS="$ARCH" ONLY_ACTIVE_ARCH=NO \
+              "CONFIGURATION_BUILD_DIR=$PWD/build-$ARCH" \
+              build
 
-          SHA=$(shasum -a 256 "$ARCHIVE" | awk '{print $1}')
-          SIZE_BYTES=$(stat -f%z "$ARCHIVE")
-          SIZE=$(du -h "$ARCHIVE" | cut -f1)
-          # The feed needs the exact asset URL, which is deterministic from the tag.
-          DOWNLOAD_URL="https://github.com/${{ github.repository }}/releases/download/${{ steps.version.outputs.tag }}/$ARCHIVE"
-          {
-            echo "archive=$ARCHIVE"
-            echo "sha256=$SHA"
-            echo "size=$SIZE_BYTES"
-            echo "download_url=$DOWNLOAD_URL"
-          } >> "$GITHUB_OUTPUT"
-          echo "Packaged $ARCHIVE ($SIZE, sha256 $SHA)"
+            APP="build-$ARCH/MacCV.app"
+            if [[ ! -d "$APP" ]]; then
+              echo "::error::$APP was not produced"
+              exit 1
+            fi
+            lipo -info "$APP/Contents/MacOS/MacCV" | tee /dev/stderr | grep -q "$ARCH" \
+              || { echo "::error::$ARCH slice is missing"; exit 1; }
+
+            DMG="dist/MacCV-$VERSION-$ARCH.dmg"
+            PATH="$PATH:$HOME/.local/bin" \
+              ./Scripts/make-dmg.sh --app "$APP" --out "$DMG"
+
+            # The image must be compressed and read-only, or it could be altered
+            # after download.
+            hdiutil imageinfo "$DMG" | awk -F': ' '/^Format:/{print "    format " $2}'
+          done
+
+          # ---------------------------------------------------------------------
+          # Checksums, one combined file plus a per-file copy.
+          #
+          # Both spellings because the two audiences differ: `SHA256SUMS` is the
+          # conventional name a person or `shasum -c` expects, and the `.sha256`
+          # sidecars sit next to their artifact for anyone who grabs one file.
+          # ---------------------------------------------------------------------
+          cd dist
+          shasum -a 256 ./*.dmg > SHA256SUMS
+          for image in ./*.dmg; do
+            shasum -a 256 "$image" | awk '{print $1}' > "$image.sha256"
+          done
+
+          echo "=== checksums ==="
+          cat SHA256SUMS
+
+          # Publish the values the site feed and the release body need.
+          for ARCH in arm64 x86_64; do
+            IMAGE="MacCV-$VERSION-$ARCH.dmg"
+            SHA=$(awk "/$IMAGE/{print \$1}" SHA256SUMS)
+            SIZE=$(stat -f%z "$IMAGE")
+            {
+              echo "${ARCH}_url=https://github.com/$REPO/releases/download/$TAG/$IMAGE"
+              echo "${ARCH}_sha=$SHA"
+              echo "${ARCH}_size=$SIZE"
+            } >> "$GITHUB_OUTPUT"
+            echo "$IMAGE  $SHA  ($SIZE bytes)"
+          done
 
       - name: Generate the release notes from the changelog
+        env:
+          VERSION: ${{ steps.version.outputs.version }}
+          TAG: ${{ steps.version.outputs.tag }}
+          X86_URL: ${{ steps.package.outputs.x86_64_url }}
+          X86_SHA: ${{ steps.package.outputs.x86_64_sha }}
+          ARM_URL: ${{ steps.package.outputs.arm64_url }}
+          ARM_SHA: ${{ steps.package.outputs.arm64_sha }}
         run: |
           set -euo pipefail
           {
-            echo "## Install"
+            echo "## Choose your download"
             echo
-            echo "1. Download \`${{ steps.package.outputs.archive }}\` below."
-            echo "2. Unzip it and move **MacCV.app** to \`/Applications\`."
-            echo "3. Launch it. MacCV lives in the menu bar — it has no Dock icon."
+            echo "| Your Mac | Download | SHA-256 |"
+            echo "|---|---|---|"
+            echo "| Apple silicon (M-series) | [MacCV-$VERSION-arm64.dmg]($ARM_URL) | \`$ARM_SHA\` |"
+            echo "| Intel | [MacCV-$VERSION-x86_64.dmg]($X86_URL) | \`$X86_SHA\` |"
             echo
-            echo "macOS will ask for permission the first time MacCV reads your"
-            echo "clipboard. That is macOS 27's pasteboard protection; allow it to"
-            echo "use history, or deny it to keep MacCV read-only."
+            echo "Not sure which?  → About This Mac. Apple silicon says \"Chip: Apple M…\";"
+            echo "anything that says \"Processor: Intel\" wants the Intel build."
             echo
-            echo "> Universal binary (Apple silicon + Intel). Requires macOS 27 or later."
+            echo "**Install:** open the DMG and drag **MacCV** onto **Applications**."
+            echo "The disk image is signed and its contents verified before packaging;"
+            echo "macOS still asks for confirmation the first time because it is not yet"
+            echo "notarized."
             echo
-            echo "**SHA-256** \`${{ steps.package.outputs.sha256 }}\`"
+            echo "Every file's checksum is in \`SHA256SUMS\` on this release."
             echo
             echo "---"
             echo
-            ./Scripts/changelog-notes.sh "${{ steps.version.outputs.version }}"
+            ./Scripts/changelog-notes.sh "$VERSION"
           } > RELEASE_NOTES.md
-          echo "--- notes preview ---"
           head -30 RELEASE_NOTES.md
 
       - name: Publish the release
@@ -172,15 +230,16 @@ jobs:
           tag_name: ${{ steps.version.outputs.tag }}
           name: MacCV ${{ steps.version.outputs.version }}
           body_path: RELEASE_NOTES.md
-          files: ${{ steps.package.outputs.archive }}
+          files: |
+            dist/*.dmg
+            dist/SHA256SUMS
+            dist/*.sha256
           draft: false
-          # Mark 0.x and pre-release tags as prereleases automatically.
-          prerelease: ${{ steps.version.outputs.prerelease == 'true' }}
+          prerelease: ${{ steps.version.outputs.channel == 'preview' }}
           fail_on_unmatched_files: true
 
-  # Refresh the website's update feed so installed copies of MacCV see this
-  # release. Separate job because it needs Pages permissions the release job
-  # above must not have.
+  # Refresh the website's feeds so installed copies see this release. A separate
+  # job because it needs Pages permissions the release job must not have.
   website:
     name: Update the site's release feed
     needs: release
@@ -192,7 +251,10 @@ jobs:
     with:
       version: ${{ needs.release.outputs.version }}
       tag: ${{ needs.release.outputs.tag }}
-      download_url: ${{ needs.release.outputs.download_url }}
-      sha256: ${{ needs.release.outputs.sha256 }}
-      size: ${{ needs.release.outputs.size }}
-      prerelease: ${{ needs.release.outputs.prerelease }}
+      channel: ${{ needs.release.outputs.channel }}
+      x86_64_url: ${{ needs.release.outputs.x86_64_url }}
+      x86_64_sha: ${{ needs.release.outputs.x86_64_sha }}
+      x86_64_size: ${{ needs.release.outputs.x86_64_size }}
+      arm64_url: ${{ needs.release.outputs.arm64_url }}
+      arm64_sha: ${{ needs.release.outputs.arm64_sha }}
+      arm64_size: ${{ needs.release.outputs.arm64_size }}

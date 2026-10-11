@@ -73,9 +73,10 @@ pub use redaction::{MASK, Redacted, RedactionMode, SensitiveKind, SensitiveMatch
 pub use secure_input::{AccessibilityPermission, SecureInput, TypeReport, TypingCadence};
 pub use types::{PasteboardType, WellKnownType};
 pub use updater::{
-    DEFAULT_MANIFEST_URL, QUARANTINE_ATTR, ReleaseManifest, StagedUpdate, UpdateChannel,
-    UpdatePolicy, UpdateStatus, check_for_update, compare_versions, download_and_verify,
-    has_quarantine, quarantine_paths, read_quarantine, remove_quarantine, sha256_file,
+    ArchDownload, DEFAULT_MANIFEST_URL, MIRROR_PREFIX, PREVIEW_MANIFEST_URL, QUARANTINE_ATTR,
+    ReleaseManifest, StagedUpdate, UpdateChannel, UpdatePolicy, UpdateStatus, check_for_update,
+    compare_versions, download_and_verify, has_quarantine, host_arch, normalise_arch,
+    quarantine_paths, read_quarantine, remove_quarantine, sha256_file,
 };
 
 /// Crate version, sourced from `Cargo.toml`.

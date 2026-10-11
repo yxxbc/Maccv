@@ -1,0 +1,247 @@
+#!/usr/bin/env bash
+#
+# Changes the project version in every place it is recorded.
+#
+# A version lives in five files, and a release that disagrees with itself is the
+# kind of failure that only shows up after publishing — the app reports 0.2.0 while
+# the tag says 0.2.1, and auto-update stops working for everyone who installed it.
+# So this script owns all five, and refuses to guess.
+#
+# Usage:
+#   Scripts/bump-version.sh 0.2.0            # set an explicit version
+#   Scripts/bump-version.sh --bump patch      # 0.1.0 -> 0.1.1
+#   Scripts/bump-version.sh --bump minor      # 0.1.0 -> 0.2.0
+#   Scripts/bump-version.sh --bump major      # 0.1.0 -> 1.0.0
+#   Scripts/bump-version.sh 0.2.0-rc.1        # a pre-release
+#   Scripts/bump-version.sh --dry-run 0.2.0   # show what would change
+#
+# What it updates:
+#   Cargo.toml                     workspace version
+#   apps/mac/project.yml           MARKETING_VERSION + CFBundleShortVersionString
+#   apps/mac/Sources/.../Info.plist  (generated, kept for reference only — see note)
+#   CHANGELOG.md                   opens an [Unreleased] entry for the new version
+#   docs/*.json                    leaves the feeds alone, they are written by release
+#
+# It deliberately does NOT touch docs/latest.json or docs/preview.json: those are
+# published by the release workflow from the artifacts it actually built, so
+# hand-editing them here could point users at a file that does not exist.
+
+set -euo pipefail
+
+REPO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+cd "$REPO_ROOT"
+
+DRY_RUN=0
+BUMP=""
+VERSION=""
+
+while [[ $# -gt 0 ]]; do
+  case "$1" in
+    --dry-run) DRY_RUN=1; shift ;;
+    --bump) BUMP="$2"; shift 2 ;;
+    -h|--help) sed -n '2,26p' "${BASH_SOURCE[0]}"; exit 0 ;;
+    -*) echo "unknown option: $1" >&2; exit 2 ;;
+    *) VERSION="$1"; shift ;;
+  esac
+done
+
+# ---------------------------------------------------------------------------
+# Work out the target version
+# ---------------------------------------------------------------------------
+
+current_version() {
+  # Cargo.toml is the authority; everything else is asserted against it.
+  python3 - <<'PY'
+import re, pathlib
+text = pathlib.Path("Cargo.toml").read_text()
+section = text.split("[workspace.package]", 1)[1]
+match = re.search(r'^version\s*=\s*"([^"]+)"', section, re.M)
+print(match.group(1) if match else "")
+PY
+}
+
+CURRENT="$(current_version)"
+if [[ -z "$CURRENT" ]]; then
+  echo "error: could not read the version from Cargo.toml" >&2
+  exit 1
+fi
+
+if [[ -n "$BUMP" ]]; then
+  # Strip any pre-release suffix before bumping: 1.0.0-rc.1 --bump major is 2.0.0,
+  # not 1.0.0-rc.2, because the "next" release after a candidate is the release.
+  BASE="${CURRENT%%-*}"
+  IFS='.' read -r MAJOR MINOR PATCH <<< "$BASE"
+  case "$BUMP" in
+    major) MAJOR=$((MAJOR + 1)); MINOR=0; PATCH=0 ;;
+    minor) MINOR=$((MINOR + 1)); PATCH=0 ;;
+    patch) PATCH=$((PATCH + 1)) ;;
+    *) echo "error: --bump takes major, minor or patch" >&2; exit 2 ;;
+  esac
+  VERSION="${MAJOR}.${MINOR}.${PATCH}"
+fi
+
+if [[ -z "$VERSION" ]]; then
+  echo "error: give a version or --bump major|minor|patch" >&2
+  exit 2
+fi
+
+# SemVer, plus an optional pre-release. Rejecting nonsense here is cheaper than
+# discovering it after a tag has been pushed.
+if ! [[ "$VERSION" =~ ^[0-9]+\.[0-9]+\.[0-9]+(-[0-9A-Za-z.-]+)?$ ]]; then
+  echo "error: '$VERSION' is not a valid semantic version" >&2
+  echo "       expected MAJOR.MINOR.PATCH or MAJOR.MINOR.PATCH-prerelease" >&2
+  exit 2
+fi
+
+if [[ "$VERSION" == "$CURRENT" ]]; then
+  echo "already at $VERSION; nothing to do"
+  exit 0
+fi
+
+echo "version: $CURRENT -> $VERSION"
+
+# ---------------------------------------------------------------------------
+# Apply
+# ---------------------------------------------------------------------------
+
+write() {
+  # Writes through a temp file so an interrupted run cannot leave a half-written
+  # manifest behind.
+  local path="$1"
+  local content="$2"
+  if [[ "$DRY_RUN" == "1" ]]; then
+    echo "  would write $path"
+  else
+    printf '%s' "$content" > "$path.tmp"
+    mv "$path.tmp" "$path"
+    echo "  wrote $path"
+  fi
+}
+
+apply_python() {
+  # Applies a transformation in place, via python for reliable regex work.
+  local path="$1"
+  local script="$2"
+  if [[ "$DRY_RUN" == "1" ]]; then
+    echo "  would edit $path"
+    return
+  fi
+  python3 - "$path" "$VERSION" <<PY
+import pathlib, re, sys
+path, version = pathlib.Path(sys.argv[1]), sys.argv[2]
+text = path.read_text()
+$script
+path.write_text(text)
+PY
+  echo "  edited $path"
+}
+
+# 1. Cargo.toml — the workspace version, which every crate inherits.
+apply_python "Cargo.toml" '
+text = re.sub(
+    r"(?m)^(version\s*=\s*)\"[^\"]+\"",
+    lambda m: f"{m.group(1)}\"{version}\"",
+    text,
+    count=1,
+)
+'
+
+# 2. project.yml — MARKETING_VERSION and the plist property xcodegen generates from.
+apply_python "apps/mac/project.yml" '
+text = re.sub(
+    r"(?m)^(\s*CFBundleShortVersionString:\s*)\"[^\"]+\"",
+    lambda m: f"{m.group(1)}\"{version}\"",
+    text,
+    count=1,
+)
+text = re.sub(
+    r"(?m)^(\s*MARKETING_VERSION:\s*)\"[^\"]+\"",
+    lambda m: f"{m.group(1)}\"{version}\"",
+    text,
+    count=1,
+)
+# The build number must move too, or macOS will not treat the new build as newer
+# than the installed one when replacing the bundle in place.
+import datetime
+build = int(datetime.datetime.now().strftime("%Y%m%d"))
+text = re.sub(
+    r"(?m)^(\s*CURRENT_PROJECT_VERSION:\s*)\"[^\"]+\"",
+    lambda m: f"{m.group(1)}\"{build}\"",
+    text,
+    count=1,
+)
+'
+
+# 3. CHANGELOG.md — turn [Unreleased] into the new version, and open a fresh
+#    [Unreleased] above it. Done here so the release notes have somewhere to come
+#    from, which is the whole reason the changelog is the notes source.
+apply_python "CHANGELOG.md" '
+import datetime
+today = datetime.date.today().isoformat()
+if "## [Unreleased]" not in text:
+    print("  warning: no [Unreleased] section; leaving the changelog alone", file=sys.stderr)
+else:
+    text = text.replace(
+        "## [Unreleased]",
+        f"## [Unreleased]\n\n## [{version}] - {today}",
+        1,
+    )
+    # Keep the comparison links at the bottom in step, so the headings resolve.
+    lines = text.splitlines()
+    link_prev = None
+    for i, line in enumerate(lines):
+        if line.startswith("[Unreleased]:"):
+            link_prev = i
+            break
+    if link_prev is not None:
+        previous = lines[link_prev].split("/compare/")[-1].split("...")[0] or f"v{version}"
+        lines[link_prev] = f"[Unreleased]: https://github.com/yxxbc/Maccv/compare/v{version}...HEAD"
+        lines.insert(link_prev + 1, f"[{version}]: https://github.com/yxxbc/Maccv/compare/{previous}...v{version}")
+        text = "\n".join(lines) + "\n"
+'
+
+# 4. Lockfile and any crate that pinned the old version.
+if [[ "$DRY_RUN" != "1" ]]; then
+  echo "  refreshing Cargo.lock"
+  cargo update --workspace --offline >/dev/null 2>&1 || cargo update --workspace >/dev/null 2>&1 || true
+fi
+
+# ---------------------------------------------------------------------------
+# Verify
+# ---------------------------------------------------------------------------
+
+if [[ "$DRY_RUN" == "1" ]]; then
+  echo
+  echo "dry run: nothing was changed"
+  exit 0
+fi
+
+echo
+echo "verifying every record agrees"
+mismatch=0
+check() {
+  local label="$1" actual="$2"
+  if [[ "$actual" == "$VERSION" ]]; then
+    printf "  ok   %-28s %s\n" "$label" "$actual"
+  else
+    printf "  FAIL %-28s %s (expected %s)\n" "$label" "$actual" "$VERSION"
+    mismatch=1
+  fi
+}
+
+check "Cargo.toml" "$(current_version)"
+check "project.yml (marketing)" "$(grep -oE 'MARKETING_VERSION: "[^"]+"' apps/mac/project.yml | head -1 | sed 's/.*"\(.*\)"/\1/')"
+check "project.yml (plist)" "$(grep -oE 'CFBundleShortVersionString: "[^"]+"' apps/mac/project.yml | head -1 | sed 's/.*"\(.*\)"/\1/')"
+
+if [[ "$mismatch" != "0" ]]; then
+  echo
+  echo "error: the version is not consistent; fix the entries above before tagging" >&2
+  exit 1
+fi
+
+echo
+echo "Next:"
+echo "  1. move the [Unreleased] notes into the [$VERSION] section"
+echo "  2. commit:  git commit -am 'chore(release): $VERSION'"
+echo "  3. build and verify:  Scripts/verify.sh"
+echo "  4. tag:     git tag -a v$VERSION -m 'MacCV $VERSION' && git push origin main v$VERSION"

@@ -577,6 +577,10 @@ impl MaccvUpdateResult {
             notes: String::new(),
             published_at: None,
             revoked: Vec::new(),
+            // The download chosen for this machine is decided by the feed, which
+            // has already run; this manifest exists only to carry the fields
+            // `download_and_verify` needs.
+            downloads: Vec::new(),
         }
     }
 }
@@ -806,6 +810,7 @@ pub unsafe extern "C" fn maccv_update_download(
         // Revocation is a property of the feed, not of a single download: the
         // check already happened, and this path only fetches what it decided on.
         revoked: Vec::new(),
+        downloads: Vec::new(),
     };
 
     let staging_path = Path::new(staging);

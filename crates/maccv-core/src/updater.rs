@@ -89,6 +89,10 @@ pub struct ReleaseManifest {
     pub notes: String,
     /// Publication date, ISO 8601.
     pub published_at: Option<String>,
+    /// Per-architecture builds, when the release ships more than one.
+    ///
+    /// Empty for a single-package release, in which case `download_url` is used.
+    pub downloads: Vec<ArchDownload>,
     /// Versions that must not be run, because they were released with a defect
     /// serious enough to warrant pulling them.
     ///
@@ -102,7 +106,80 @@ pub struct ReleaseManifest {
     pub revoked: Vec<String>,
 }
 
+/// One architecture's build of a release.
+///
+/// Shipping per-architecture packages means the feed must be able to say which one
+/// a given Mac should fetch. Without this the manifest has a single `download_url`,
+/// and an Intel user downloads an Apple-silicon build that will not launch.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct ArchDownload {
+    /// `arm64` or `x86_64`.
+    pub arch: String,
+    /// Direct download URL for this architecture.
+    pub url: String,
+    /// Lowercase hex SHA-256.
+    pub sha256: String,
+    /// Size in bytes, or 0 when unknown.
+    pub size: u64,
+}
+
+impl ArchDownload {
+    /// Whether this entry matches the architecture it was asked about.
+    ///
+    /// Normalised because the same architecture is spelled several ways across
+    /// the ecosystem: `aarch64` from Rust, `arm64` from Apple and the filenames.
+    pub fn matches(&self, arch: &str) -> bool {
+        normalise_arch(&self.arch) == normalise_arch(arch)
+    }
+}
+
+/// Reduces the several spellings of an architecture to one.
+///
+/// Returns an owned value because an unrecognised architecture is passed through
+/// as-is, and returning a borrowed slice of a lowercased temporary is not possible.
+pub fn normalise_arch(arch: &str) -> String {
+    match arch.trim().to_ascii_lowercase().as_str() {
+        "aarch64" | "arm64" | "arm64e" => "arm64".to_owned(),
+        "x86_64" | "x64" | "amd64" | "i386" => "x86_64".to_owned(),
+        other => other.to_owned(),
+    }
+}
+
+/// The architecture this process is running as.
+///
+/// Used to choose which download to fetch. `std::env::consts::ARCH` is resolved at
+/// compile time, which is correct here: within a universal binary each slice has
+/// its own compiled-in value, so an Intel Mac running the x86_64 slice reports
+/// `x86_64`.
+pub const fn host_arch() -> &'static str {
+    std::env::consts::ARCH
+}
+
 impl ReleaseManifest {
+    /// The download to fetch on this machine, and the digest to verify it against.
+    ///
+    /// Prefers an architecture-specific entry; falls back to the single
+    /// `download_url`, which is how a one-package release stays readable.
+    pub fn download_for(&self, arch: &str) -> Option<ArchDownload> {
+        if let Some(found) = self.downloads.iter().find(|entry| entry.matches(arch)) {
+            return Some(found.clone());
+        }
+        if self.download_url.is_empty() {
+            return None;
+        }
+        Some(ArchDownload {
+            arch: normalise_arch(arch),
+            url: self.download_url.clone(),
+            sha256: self.sha256.clone(),
+            size: self.size,
+        })
+    }
+
+    /// The download for the machine this code is running on.
+    pub fn download_for_host(&self) -> Option<ArchDownload> {
+        self.download_for(host_arch())
+    }
+
     /// Whether `version` is on the revocation list.
     ///
     /// Compared with the same numeric-correct comparison used for ordering, so
@@ -154,6 +231,7 @@ impl ReleaseManifest {
             notes: json_string(json, "notes").unwrap_or_default(),
             published_at: json_string(json, "published_at"),
             revoked: json_string_array(json, "revoked"),
+            downloads: json_downloads(json),
         })
     }
 
@@ -897,6 +975,80 @@ fn json_bool(json: &str, key: &str) -> Option<bool> {
     }
 }
 
+/// Reads `"downloads": [{"arch": "arm64", "url": "…", "sha256": "…", "size": 1}, …]`.
+///
+/// A hand-written walk rather than a JSON dependency: the manifest is a fixed
+/// shape, the project has no other need for a parser, and pulling in serde for
+/// this one field would be more code than it saves.
+///
+/// Entries that are incomplete or whose digest is not a valid SHA-256 are dropped
+/// rather than rejecting the whole manifest — a release with one malformed entry
+/// should still be installable on the architectures that were described correctly.
+fn json_downloads(json: &str) -> Vec<ArchDownload> {
+    let Some(raw) = json_raw_value(json, "downloads") else {
+        return Vec::new();
+    };
+
+    let mut out = Vec::new();
+    let mut depth = 0usize;
+    let mut in_string = false;
+    let mut escaped = false;
+    let mut object_start = None;
+
+    for (index, ch) in raw.char_indices() {
+        if escaped {
+            escaped = false;
+            continue;
+        }
+        match ch {
+            '\\' if in_string => escaped = true,
+            '"' => in_string = !in_string,
+            '{' if !in_string => {
+                if depth == 0 {
+                    object_start = Some(index);
+                }
+                depth += 1;
+            }
+            '}' if !in_string => {
+                depth = depth.saturating_sub(1);
+                if depth == 0
+                    && let Some(start) = object_start.take()
+                {
+                    let object = &raw[start..=index];
+                    if let Some(entry) = parse_download_object(object) {
+                        out.push(entry);
+                    }
+                }
+            }
+            _ => {}
+        }
+    }
+    out
+}
+
+/// Parses one `downloads` entry.
+fn parse_download_object(object: &str) -> Option<ArchDownload> {
+    let arch = json_string(object, "arch")?;
+    // Accept either spelling of the URL key, because a feed written by hand is
+    // likely to use one or the other.
+    let url = json_string(object, "url").or_else(|| json_string(object, "download_url"))?;
+    let sha256 = json_string(object, "sha256")?.trim().to_ascii_lowercase();
+
+    if sha256.len() != 64 || !sha256.bytes().all(|b| b.is_ascii_hexdigit()) {
+        return None;
+    }
+    if !url.starts_with("https://") {
+        return None;
+    }
+
+    Some(ArchDownload {
+        arch,
+        url,
+        sha256,
+        size: json_number(object, "size").unwrap_or(0),
+    })
+}
+
 /// Reads a top-level array of strings, e.g. `"revoked": ["0.2.0", "0.2.1"]`.
 ///
 /// The manifest is otherwise scalar, so this is the one place a nested value is
@@ -1177,6 +1329,97 @@ mod tests {
         assert!(!manifest.is_revoked("0.2.0"));
     }
 
+    /// A two-package release must hand each Mac the right one. Before this, the
+    /// manifest had a single URL and an Intel user downloaded an Apple-silicon
+    /// build that would not launch.
+    #[test]
+    fn selects_the_download_matching_the_machine() {
+        let json = format!(
+            r#"{{
+              "version": "0.2.0",
+              "download_url": "https://github.com/yxxbc/Maccv/releases/download/v0.2.0/MacCV-0.2.0-universal.dmg",
+              "sha256": "{universal}",
+              "size": 999,
+              "downloads": [
+                {{"arch": "arm64", "url": "https://github.com/yxxbc/Maccv/releases/download/v0.2.0/MacCV-0.2.0-arm64.dmg", "sha256": "{arm}", "size": 100}},
+                {{"arch": "x86_64", "url": "https://github.com/yxxbc/Maccv/releases/download/v0.2.0/MacCV-0.2.0-x86_64.dmg", "sha256": "{intel}", "size": 200}}
+              ]
+            }}"#,
+            universal = "1".repeat(64),
+            arm = "2".repeat(64),
+            intel = "3".repeat(64),
+        );
+        let manifest = ReleaseManifest::from_json(&json).expect("should parse");
+        assert_eq!(manifest.downloads.len(), 2);
+
+        let apple = manifest.download_for("arm64").expect("arm64 entry");
+        assert!(apple.url.ends_with("arm64.dmg"));
+        assert_eq!(apple.size, 100);
+
+        let intel = manifest.download_for("x86_64").expect("x86_64 entry");
+        assert!(intel.url.ends_with("x86_64.dmg"));
+        assert_eq!(intel.size, 200);
+
+        // Rust spells it differently from Apple and from the filenames.
+        assert!(
+            manifest
+                .download_for("aarch64")
+                .unwrap()
+                .url
+                .ends_with("arm64.dmg")
+        );
+        assert!(
+            manifest
+                .download_for("amd64")
+                .unwrap()
+                .url
+                .ends_with("x86_64.dmg")
+        );
+    }
+
+    #[test]
+    fn falls_back_to_the_single_url_when_no_per_arch_builds_are_listed() {
+        let json = format!(
+            r#"{{"version":"0.2.0","download_url":"https://e.com/universal.dmg","sha256":"{}"}}"#,
+            "4".repeat(64)
+        );
+        let manifest = ReleaseManifest::from_json(&json).unwrap();
+        assert!(manifest.downloads.is_empty());
+
+        // Any architecture gets the universal build rather than nothing.
+        for arch in ["arm64", "x86_64", "aarch64"] {
+            let entry = manifest
+                .download_for(arch)
+                .unwrap_or_else(|| panic!("no download for {arch}"));
+            assert!(entry.url.ends_with("universal.dmg"));
+        }
+    }
+
+    #[test]
+    fn drops_malformed_architecture_entries_without_rejecting_the_manifest() {
+        let json = format!(
+            r#"{{
+              "version": "0.2.0",
+              "download_url": "https://e.com/a.dmg",
+              "sha256": "{good}",
+              "downloads": [
+                {{"arch": "arm64", "url": "https://e.com/arm.dmg", "sha256": "{good}"}},
+                {{"arch": "x86_64", "url": "https://e.com/bad.dmg", "sha256": "not-a-digest"}},
+                {{"arch": "riscv", "url": "http://insecure.example.com/c.dmg", "sha256": "{good}"}},
+                {{"url": "https://e.com/noarch.dmg", "sha256": "{good}"}}
+              ]
+            }}"#,
+            good = "5".repeat(64),
+        );
+        let manifest = ReleaseManifest::from_json(&json).expect("manifest must still parse");
+        // Only the first entry is usable.
+        assert_eq!(manifest.downloads.len(), 1);
+        assert_eq!(manifest.downloads[0].arch, "arm64");
+        // And the architectures that lost their entry still have a path via the
+        // top-level URL, so a valid release is never made uninstallable.
+        assert!(manifest.download_for("x86_64").is_some());
+    }
+
     #[test]
     fn revocation_compares_numerically() {
         let json = format!(
@@ -1226,6 +1469,7 @@ mod tests {
             notes: String::new(),
             published_at: None,
             revoked: vec!["0.1.0".into()],
+            downloads: Vec::new(),
         };
 
         let forced = UpdateStatus::Revoked {
