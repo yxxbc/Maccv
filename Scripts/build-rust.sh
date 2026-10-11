@@ -54,15 +54,28 @@ export CARGO_TARGET_DIR="$TARGET_DIR"
 unset SDKROOT MACOSX_DEPLOYMENT_TARGET TOOLCHAINS 2>/dev/null || true
 
 declare -a TARGETS
-if [[ "$ARCH" == "universal" ]]; then
-  TARGETS=("aarch64-apple-darwin" "x86_64-apple-darwin")
-else
-  case "$(uname -m)" in
-    arm64) TARGETS=("aarch64-apple-darwin") ;;
-    x86_64) TARGETS=("x86_64-apple-darwin") ;;
-    *) echo "unsupported architecture: $(uname -m)" >&2; exit 2 ;;
-  esac
-fi
+case "$ARCH" in
+  universal)
+    TARGETS=("aarch64-apple-darwin" "x86_64-apple-darwin")
+    ;;
+  arm64 | aarch64)
+    TARGETS=("aarch64-apple-darwin")
+    ;;
+  x86_64 | intel)
+    TARGETS=("x86_64-apple-darwin")
+    ;;
+  native)
+    case "$(uname -m)" in
+      arm64) TARGETS=("aarch64-apple-darwin") ;;
+      x86_64) TARGETS=("x86_64-apple-darwin") ;;
+      *) echo "unsupported host architecture: $(uname -m)" >&2; exit 2 ;;
+    esac
+    ;;
+  *)
+    echo "invalid --arch: $ARCH (expected native, arm64, x86_64 or universal)" >&2
+    exit 2
+    ;;
+esac
 
 # Ensure the secondary target is installed for universal builds.
 if [[ "$ARCH" == "universal" ]]; then
@@ -87,6 +100,9 @@ else
 fi
 
 OUT_DIR="$TARGET_DIR/maccv-apple"
+# Cleared first: a stale multi-slice archive from an earlier `--arch universal` run
+# would otherwise be left in place when this build only produced one slice.
+rm -rf "$OUT_DIR"
 mkdir -p "$OUT_DIR"
 
 if [[ ${#TARGETS[@]} -eq 1 ]]; then

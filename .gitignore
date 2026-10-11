@@ -39,6 +39,9 @@ docs/preview.json
 # without requiring a cbindgen install.
 target/maccv-apple/
 
+# Local build and packaging output (Scripts/build-app.sh, make-dmg.sh)
+dist/
+
 # macOS
 .DS_Store
 ._*

@@ -135,38 +135,21 @@ jobs:
           for ARCH in arm64 x86_64; do
             echo "=== $ARCH ==="
 
-            # ARCHS pinned per invocation: the destination alone can narrow it to
-            # the host, which would ship the same slice twice.
-            xcodebuild -project apps/mac/MacCV.xcodeproj -scheme MacCV \
-              -configuration Release \
-              -destination 'generic/platform=macOS' \
-              ARCHS="$ARCH" ONLY_ACTIVE_ARCH=NO \
-              "CONFIGURATION_BUILD_DIR=$PWD/build-$ARCH" \
-              build
-
-            APP="build-$ARCH/MacCV.app"
-            if [[ ! -d "$APP" ]]; then
-              echo "::error::$APP was not produced"
-              exit 1
-            fi
-            lipo -info "$APP/Contents/MacOS/MacCV" | tee /dev/stderr | grep -q "$ARCH" \
-              || { echo "::error::$ARCH slice is missing"; exit 1; }
+            # The same script CI runs, so the artifacts released are produced by
+            # code that has already been exercised on every push.
+            Scripts/build-app.sh --arch "$ARCH" --out "dist/$ARCH"
 
             DMG="dist/MacCV-$VERSION-$ARCH.dmg"
             PATH="$PATH:$HOME/.local/bin" \
-              ./Scripts/make-dmg.sh --app "$APP" --out "$DMG"
-
-            # The image must be compressed and read-only, or it could be altered
-            # after download.
-            hdiutil imageinfo "$DMG" | awk -F': ' '/^Format:/{print "    format " $2}'
+              Scripts/make-dmg.sh --app "dist/$ARCH/MacCV.app" --out "$DMG"
           done
 
           # ---------------------------------------------------------------------
-          # Checksums, one combined file plus a per-file copy.
+          # Checksums: one combined file, plus a per-file copy.
           #
-          # Both spellings because the two audiences differ: `SHA256SUMS` is the
-          # conventional name a person or `shasum -c` expects, and the `.sha256`
-          # sidecars sit next to their artifact for anyone who grabs one file.
+          # Both spellings because the audiences differ: `SHA256SUMS` is what a
+          # person or `shasum -c` expects, and the `.sha256` sidecar sits beside its
+          # artifact for anyone who grabbed a single file.
           # ---------------------------------------------------------------------
           cd dist
           shasum -a 256 ./*.dmg > SHA256SUMS

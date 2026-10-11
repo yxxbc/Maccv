@@ -102,14 +102,23 @@ jobs:
   app:
     name: MacCV app
     runs-on: xcode-27
+    timeout-minutes: 45
     steps:
       - uses: actions/checkout@v7
 
       - name: Install Rust toolchain
         uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: aarch64-apple-darwin,x86_64-apple-darwin
 
-      - name: Install XcodeGen
-        run: brew install xcodegen
+      - name: Install build tools
+        run: |
+          set -euo pipefail
+          brew install xcodegen
+          # Needed for the packaging step below, so the DMG path is exercised on
+          # every push rather than first on release day.
+          pipx install dmgbuild
+          python3 -m pip install --quiet --break-system-packages Pillow
 
       - name: Cache cargo artifacts
         uses: Swatinem/rust-cache@v2
@@ -120,34 +129,73 @@ jobs:
         working-directory: apps/mac
         run: xcodegen generate
 
-      - name: Build (Debug)
-        working-directory: apps/mac
+      - name: Build each architecture
+        # Both shipping architectures, through the same script the release uses.
+        # Previously this job built only the host architecture with a different
+        # destination, so it validated a build shape that was never released.
         run: |
-          set -o pipefail
-          xcodebuild -project MacCV.xcodeproj \
-            -scheme MacCV \
-            -configuration Debug \
-            -destination 'platform=macOS' \
-            build
+          set -euo pipefail
+          for ARCH in arm64 x86_64; do
+            Scripts/build-app.sh --arch "$ARCH" --out "dist/$ARCH"
+          done
 
-      - name: Build (Release)
-        working-directory: apps/mac
+      - name: Run the app's self-test on each architecture
+        # Proves Swift -> C ABI -> Rust works per slice, not just that it linked.
         run: |
-          set -o pipefail
-          xcodebuild -project MacCV.xcodeproj \
-            -scheme MacCV \
-            -configuration Release \
-            -destination 'platform=macOS' \
-            build
+          set -euo pipefail
+          for ARCH in arm64 x86_64; do
+            echo "=== $ARCH ==="
+            "dist/$ARCH/MacCV.app/Contents/MacOS/MacCV" --self-test
+          done
 
-      - name: Report bundle size
+      - name: Package a DMG
+        # The packaging path — background generation, dmgbuild, the icon layout,
+        # mounting and verifying the image — used to run for the first time during
+        # a release. Running it here means a broken DMG fails on a push.
         run: |
-          APP=$(find ~/Library/Developer/Xcode/DerivedData -path '*Release/MacCV.app' -maxdepth 6 | head -1)
-          echo "Release bundle: $(du -sh "$APP" | cut -f1)"
-          echo "### Release bundle: $(du -sh "$APP" | cut -f1)" >> "$GITHUB_STEP_SUMMARY"
+          set -euo pipefail
+          PATH="$PATH:$HOME/.local/bin" \
+            Scripts/make-dmg.sh \
+              --app dist/arm64/MacCV.app \
+              --out dist/MacCV-CI-arm64.dmg
 
-      - name: Run the app's self-test
-        # Proves Swift → C ABI → Rust → NSPasteboard works, not merely that it compiles.
+      - name: Verify the DMG mounts and its app runs
         run: |
-          APP=$(find ~/Library/Developer/Xcode/DerivedData -path '*Release/MacCV.app' -maxdepth 6 | head -1)
+          set -euo pipefail
+          MOUNT="$(mktemp -d)"
+          hdiutil attach -nobrowse -readonly -mountpoint "$MOUNT" dist/MacCV-CI-arm64.dmg >/dev/null
+          APP="$(find "$MOUNT" -maxdepth 1 -name '*.app' -print -quit)"
+          [ -n "$APP" ] || { echo "::error::the image contains no app"; exit 1; }
           "$APP/Contents/MacOS/MacCV" --self-test
+          hdiutil detach "$MOUNT" >/dev/null
+
+      - name: Write the checksum the release would publish
+        # Exercises the same checksum path, so a release cannot fail on it.
+        run: |
+          set -euo pipefail
+          cd dist
+          shasum -a 256 ./*.dmg > SHA256SUMS
+          cat SHA256SUMS
+
+      - name: Summarise
+        run: |
+          {
+            echo "### Build"
+            for ARCH in arm64 x86_64; do
+              APP="dist/$ARCH/MacCV.app"
+              echo "- \`$ARCH\`: $(du -sh "$APP" | cut -f1), $(lipo -info "$APP/Contents/MacOS/MacCV" | grep -o 'architecture: .*')"
+            done
+            echo "- DMG: $(du -sh dist/*.dmg | cut -f1)"
+          } >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Upload the DMG for inspection
+        # Makes a failure diagnosable without re-running the job.
+        if: always()
+        uses: actions/upload-artifact@v7
+        with:
+          name: MacCV-CI-dmg
+          path: |
+            dist/*.dmg
+            dist/SHA256SUMS
+          retention-days: 7
+          if-no-files-found: warn

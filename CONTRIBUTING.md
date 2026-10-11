@@ -6,13 +6,20 @@ Thanks for wanting to help. This file covers what you need to get a change merge
 
 You will need macOS 27, Xcode 27, Rust 1.85 or newer, and
 [XcodeGen](https://github.com/yonaskolb/XcodeGen) (`brew install xcodegen`).
+For packaging, `pipx install dmgbuild` and
+`python3 -m pip install --break-system-packages Pillow`.
 
 ```bash
 git clone https://github.com/yxxbc/Maccv.git
 cd Maccv
-cargo test                 # engine
-cd apps/mac && xcodegen generate && cd ../..
+
+Scripts/verify.sh          # every check: 22 stages, the same command CI runs
+./Scripts/verify.sh --quick   # Rust and the source checks only, no app build
 ```
+
+> **[AGENTS.md](AGENTS.md) is the detailed guide** — in particular its
+> "coupled-files map", which lists what else has to change for a given edit. This
+> file duplicates only what a human contributor needs first.
 
 `MacCV.xcodeproj` is generated from `apps/mac/project.yml` and is not committed.
 Change the YAML, not the project file.

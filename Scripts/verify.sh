@@ -159,6 +159,9 @@ stage "clipboard content is never persisted" \
 stage "READMEs agree on the facts" \
   python3 Scripts/checks/readme_parity.py
 
+stage "AGENTS.md matches the repository" \
+  python3 Scripts/checks/agents_doc.py
+
 stage "documented standards exist" \
   bash -c '
     set -e
@@ -175,39 +178,72 @@ stage "documented standards exist" \
 
 if [[ "$QUICK" == "0" ]]; then
   if command -v xcodegen >/dev/null 2>&1; then
-    stage "xcodegen + Release build (universal)" \
+    stage "app builds for arm64 and x86_64" \
       bash -c '
         set -e
-        cd apps/mac
-        xcodegen generate >/dev/null
-        # generic/platform, not platform=macOS: the latter narrows ARCHS to the
-        # host and silently produces a single-slice binary.
-        xcodebuild -project MacCV.xcodeproj -scheme MacCV \
-          -configuration Release -destination "generic/platform=macOS" build
-      '
-
-    stage "app is universal at macOS 15" \
-      bash -c '
-        set -e
-        app=$(find ~/Library/Developer/Xcode/DerivedData/MacCV-*/Build/Products/Release \
-              -maxdepth 1 -name MacCV.app 2>/dev/null | head -1)
-        [ -n "$app" ] || { echo "no Release build found"; exit 1; }
-        info=$(lipo -info "$app/Contents/MacOS/MacCV")
-        echo "$info"
+        # The same script CI and the release workflow call, so all three exercise
+        # one implementation. Previously this stage used a different destination
+        # from the release and silently validated the wrong build shape.
         for arch in arm64 x86_64; do
-          echo "$info" | grep -q "$arch" || { echo "missing $arch"; exit 1; }
-          vtool -arch "$arch" -show-build-version "$app/Contents/MacOS/MacCV" \
-            | grep -q "minos 15.0" || { echo "$arch is not targeting macOS 15"; exit 1; }
+          Scripts/build-app.sh --arch "$arch" --out "dist/verify-$arch" >/dev/null
         done
+        echo "both slices built"
       '
 
-    stage "app self-test (Swift → C ABI → Rust)" \
+    # Running a slice of the other architecture needs Rosetta on Apple silicon (or
+    # an Intel host). Where it is unavailable the stage reports SKIP with the reason
+    # rather than either failing falsely or passing without testing anything —
+    # a check that silently does nothing is worse than no check.
+    stage "app self-test per architecture" \
       bash -c '
         set -e
-        app=$(find ~/Library/Developer/Xcode/DerivedData/MacCV-*/Build/Products/Release \
-              -maxdepth 1 -name MacCV.app 2>/dev/null | head -1)
-        "$app/Contents/MacOS/MacCV" --self-test
+        host="$(uname -m)"
+        ran=0
+
+        for arch in arm64 x86_64; do
+          binary="dist/verify-$arch/MacCV.app/Contents/MacOS/MacCV"
+
+          if [ "$arch" = "$host" ]; then
+            "$binary" --self-test >/dev/null
+            echo "  $arch (native) verified"
+            ran=$((ran + 1))
+            continue
+          fi
+
+          # Non-native: needs Rosetta. Probe rather than assume.
+          if arch -"$arch" /usr/bin/true 2>/dev/null; then
+            arch -"$arch" "$binary" --self-test >/dev/null
+            echo "  $arch (Rosetta) verified"
+            ran=$((ran + 1))
+          else
+            echo "  $arch SKIPPED: cannot execute a $arch binary on this $host host"
+            echo "    (install Rosetta: softwareupdate --install-rosetta --agree-to-license)"
+          fi
+        done
+
+        [ "$ran" -ge 1 ] || { echo "no architecture could be tested"; exit 1; }
       '
+
+    # A DMG is a zip of nothing: it only counts as working if it mounts and the app
+    # inside runs. This is the check that would have caught the empty first image.
+    if command -v dmgbuild >/dev/null 2>&1 || python3 -c "import dmgbuild" 2>/dev/null; then
+      stage "DMG builds, mounts, and its app runs" \
+        bash -c '
+          set -e
+          PATH="$PATH:$HOME/.local/bin" \
+            Scripts/make-dmg.sh --app dist/verify-arm64/MacCV.app \
+              --out dist/verify.dmg >/dev/null
+          mount="$(mktemp -d)"
+          hdiutil attach -nobrowse -readonly -mountpoint "$mount" dist/verify.dmg >/dev/null
+          app="$(find "$mount" -maxdepth 1 -name "*.app" -print -quit)"
+          [ -n "$app" ] || { echo "the image contains no app"; hdiutil detach "$mount" >/dev/null; exit 1; }
+          "$app/Contents/MacOS/MacCV" --self-test >/dev/null
+          hdiutil detach "$mount" >/dev/null
+          echo "$(du -h dist/verify.dmg | cut -f1) image verified"
+        '
+    else
+      printf '%-42s %s\n' "DMG builds, mounts, and its app runs" "SKIP (dmgbuild not installed)"
+    fi
   else
     printf '%-42s %s\n' "app build" "SKIP (xcodegen not installed)"
   fi
