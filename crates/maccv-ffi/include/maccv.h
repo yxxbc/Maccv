@@ -784,6 +784,28 @@ struct MaccvString maccv_update_result_version(const struct MaccvUpdateResult *r
 struct MaccvString maccv_update_result_download_url(const struct MaccvUpdateResult *result);
 
 /**
+ * The expected lowercase hex SHA-256 of the archive.
+ *
+ * Exposed so a caller can show what will be verified, rather than having to take
+ * the updater's word for it. The digest the download is actually checked against
+ * comes from the same manifest.
+ *
+ * # Safety
+ *
+ * `result` must be live from [`maccv_update_check`].
+ */
+struct MaccvString maccv_update_result_sha256(const struct MaccvUpdateResult *result);
+
+/**
+ * The archive size in bytes, or 0 when unknown.
+ *
+ * # Safety
+ *
+ * `result` must be live from [`maccv_update_check`].
+ */
+uint64_t maccv_update_result_size(const struct MaccvUpdateResult *result);
+
+/**
  * The release notes, in Markdown.
  *
  * # Safety

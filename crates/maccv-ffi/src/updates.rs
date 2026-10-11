@@ -580,6 +580,32 @@ pub unsafe extern "C" fn maccv_update_result_download_url(
     unsafe { result.as_ref() }.map_or(MaccvString::EMPTY, |result| result.download_url)
 }
 
+/// The expected lowercase hex SHA-256 of the archive.
+///
+/// Exposed so a caller can show what will be verified, rather than having to take
+/// the updater's word for it. The digest the download is actually checked against
+/// comes from the same manifest.
+///
+/// # Safety
+///
+/// `result` must be live from [`maccv_update_check`].
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn maccv_update_result_sha256(
+    result: *const MaccvUpdateResult,
+) -> MaccvString {
+    unsafe { result.as_ref() }.map_or(MaccvString::EMPTY, |result| result.sha256)
+}
+
+/// The archive size in bytes, or 0 when unknown.
+///
+/// # Safety
+///
+/// `result` must be live from [`maccv_update_check`].
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn maccv_update_result_size(result: *const MaccvUpdateResult) -> u64 {
+    unsafe { result.as_ref() }.map_or(0, |result| result.size)
+}
+
 /// The release notes, in Markdown.
 ///
 /// # Safety
@@ -1143,6 +1169,8 @@ mod tests {
             // Every accessor must return a usable string even when unset.
             assert!(!maccv_update_result_version(out).ptr.is_null());
             assert!(!maccv_update_result_notes(out).ptr.is_null());
+            assert!(!maccv_update_result_sha256(out).ptr.is_null());
+            assert_eq!(maccv_update_result_size(out), 0);
             maccv_update_result_free(out);
         }
     }

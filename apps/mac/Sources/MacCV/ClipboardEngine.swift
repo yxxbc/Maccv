@@ -42,17 +42,17 @@ enum ClipKind: String, Sendable, CaseIterable {
         }
     }
 
-    /// Human-readable label.
+    /// Human-readable label, from the string catalog.
     var displayName: String {
         switch self {
-        case .text: "Text"
-        case .richText: "Rich Text"
-        case .image: "Image"
-        case .files: "Files"
-        case .url: "Link"
-        case .color: "Color"
-        case .sound: "Sound"
-        case .other: "Data"
+        case .text: String(localized: "kind.text")
+        case .richText: String(localized: "kind.richText")
+        case .image: String(localized: "kind.image")
+        case .files: String(localized: "kind.files")
+        case .url: String(localized: "kind.url")
+        case .color: String(localized: "kind.color")
+        case .sound: String(localized: "kind.sound")
+        case .other: String(localized: "kind.other")
         }
     }
 
@@ -78,11 +78,19 @@ struct ClipRepresentation: Sendable {
 
 /// One logical thing the user copied, with every representation it carried.
 struct ClipItem: Identifiable, Sendable {
-    let id = UUID()
+    var id = UUID()
     let kind: ClipKind
     let preview: String
     let byteLength: Int
     let representations: [ClipRepresentation]
+    /// What was masked in this entry, if anything. Empty when nothing was.
+    ///
+    /// Defaults to empty so the engine's own conversion does not have to populate
+    /// it; only the redaction pass does.
+    var maskedKinds: [SensitiveKind] = []
+
+    /// Whether this entry had sensitive values hidden.
+    var isRedacted: Bool { !maskedKinds.isEmpty }
 
     /// The payload for `uti`, if present.
     func representation(_ uti: String) -> ClipRepresentation? {
@@ -118,6 +126,9 @@ struct ClipSnapshot: Identifiable, Sendable {
     var preview: String { items.first?.preview ?? "" }
 
     var kind: ClipKind { items.first?.kind ?? .other }
+
+    /// Whether any item in this snapshot had sensitive values hidden.
+    var isRedacted: Bool { items.contains(where: \.isRedacted) }
 }
 
 /// Well-known pasteboard UTIs, so Swift code never hard-codes a string twice.
@@ -451,6 +462,96 @@ extension ClipboardEngine {
     private func error(for code: MaccvError) -> ClipboardError {
         ClipboardError(code: code)
     }
+}
+
+// MARK: - Redaction
+
+/// Wraps `maccv_redact`.
+///
+/// All text passes through here when masking is on, so the C memory rules are
+/// handled in exactly one place.
+enum RedactionBridge {
+    /// A redaction outcome, in Swift terms.
+    struct Outcome {
+        let text: String
+        let kinds: [SensitiveKind]
+        let wasRedacted: Bool
+        let shouldSkipRecording: Bool
+    }
+
+    static func redact(_ text: String, mode: RedactionMode) -> Outcome {
+        var out: UnsafeMutablePointer<MaccvRedacted>?
+        let bytes = Array(text.utf8)
+
+        let status = bytes.withUnsafeBufferPointer { buffer in
+            maccv_redact(buffer.baseAddress, UInt(buffer.count), mode.cValue, &out)
+        }
+        guard status == MACCV_ERROR_OK, let out else {
+            // A failure here must not lose the entry: returning the original text
+            // degrades to "not masked" rather than "dropped".
+            return Outcome(text: text, kinds: [], wasRedacted: false, shouldSkipRecording: false)
+        }
+        defer { maccv_redacted_free(out) }
+
+        let masked = stringToSwift(maccv_redacted_text(out))
+        let kindList = stringToSwift(maccv_redacted_kinds(out))
+        let kinds = kindList
+            .split(separator: ",")
+            .compactMap { SensitiveKind(rawValue: String($0)) }
+
+        return Outcome(
+            text: masked,
+            kinds: kinds,
+            wasRedacted: maccv_redacted_was_redacted(out),
+            shouldSkipRecording: maccv_redacted_should_skip_recording(out)
+        )
+    }
+}
+
+/// What the engine detected. Mirrors `SensitiveKind` in Rust.
+enum SensitiveKind: String, Sendable, CaseIterable {
+    case concealed
+    case transient
+    case cardNumber = "card-number"
+    case apiKey = "api-key"
+    case awsAccessKey = "aws-access-key"
+    case jsonWebToken = "json-web-token"
+    case privateKey = "private-key"
+    case connectionString = "connection-string"
+    case email
+    case chineseIdNumber = "chinese-id-number"
+
+    /// A short label for the entry's badge tooltip.
+    var label: String {
+        switch self {
+        case .concealed: "Concealed by the source app"
+        case .transient: "Marked transient"
+        case .cardNumber: "Card number"
+        case .apiKey: "API key"
+        case .awsAccessKey: "AWS access key"
+        case .jsonWebToken: "JSON Web Token"
+        case .privateKey: "Private key"
+        case .connectionString: "Credentials in a connection string"
+        case .email: "Email address"
+        case .chineseIdNumber: "Identity number"
+        }
+    }
+
+    /// Whether content of this kind must never be recorded at all.
+    var mustNotBeRecorded: Bool {
+        switch self {
+        case .concealed, .transient, .privateKey: true
+        default: false
+        }
+    }
+}
+
+/// The Accessibility permission, mirrored from `MaccvAccessibilityPermission`.
+enum AccessibilityPermission: UInt32, Sendable {
+    case granted = 0
+    case notGranted = 1
+
+    var isGranted: Bool { self == .granted }
 }
 
 // MARK: - C interop helpers

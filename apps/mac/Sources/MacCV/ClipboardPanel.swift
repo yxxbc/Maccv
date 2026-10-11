@@ -10,6 +10,9 @@ import SwiftUI
 
 struct ClipboardPanel: View {
     @Environment(ClipboardStore.self) private var store
+    @Environment(AppSettings.self) private var settings
+    @Environment(UpdateModel.self) private var updates
+    @Environment(\.openSettings) private var openSettings
     @State private var query = ""
 
     private var filtered: [ClipSnapshot] {
@@ -46,7 +49,11 @@ struct ClipboardPanel: View {
             footer
         }
         .frame(width: 380, height: 480)
-        .searchable(text: $query, placement: .toolbar, prompt: "Search clips")
+        .searchable(
+            text: $query,
+            placement: .toolbar,
+            prompt: Text(String(localized: "panel.search.prompt"))
+        )
     }
 
     // MARK: - Sections
@@ -66,7 +73,7 @@ struct ClipboardPanel: View {
                 Image(systemName: "arrow.clockwise")
             }
             .buttonStyle(.borderless)
-            .help("Re-read the clipboard now")
+            .help(String(localized: "panel.refresh.help"))
 
             Button {
                 store.isPaused.toggle()
@@ -74,7 +81,17 @@ struct ClipboardPanel: View {
                 Image(systemName: store.isPaused ? "play.fill" : "pause.fill")
             }
             .buttonStyle(.borderless)
-            .help(store.isPaused ? "Resume recording" : "Pause recording")
+            .help(store.isPaused
+                ? String(localized: "panel.resume.help")
+                : String(localized: "panel.pause.help"))
+
+            Button {
+                openSettings()
+            } label: {
+                Image(systemName: "gearshape")
+            }
+            .buttonStyle(.borderless)
+            .help(String(localized: "panel.settings"))
         }
         .padding(.horizontal, 12)
         .padding(.vertical, 8)
@@ -93,23 +110,33 @@ struct ClipboardPanel: View {
 
     private var footer: some View {
         HStack(spacing: 10) {
-            Text("\(store.history.count) clip\(store.history.count == 1 ? "" : "s")")
+            Text(clipCountLabel)
                 .font(.caption)
                 .foregroundStyle(.secondary)
 
+            // A pending update is worth surfacing here, where it is seen.
+            if updates.phase.isBusy || updates.phase.hasUpdate {
+                Image(systemName: updates.phase.hasUpdate
+                    ? "arrow.down.circle.fill"
+                    : "arrow.triangle.2.circlepath")
+                    .font(.caption)
+                    .foregroundStyle(.tint)
+                    .accessibilityLabel(Text("settings.tab.updates"))
+            }
+
             Spacer()
 
-            Text("engine \(store.engineVersion)")
+            Text(String(format: String(localized: "panel.engineVersion"), store.engineVersion))
                 .font(.caption2)
                 .foregroundStyle(.tertiary)
 
-            Button("Clear history", role: .destructive) {
+            Button(String(localized: "panel.clearHistory"), role: .destructive) {
                 store.forgetAll()
             }
             .buttonStyle(.borderless)
             .font(.caption)
 
-            Button("Quit") {
+            Button(String(localized: "panel.quit")) {
                 NSApplication.shared.terminate(nil)
             }
             .buttonStyle(.borderless)
@@ -118,12 +145,29 @@ struct ClipboardPanel: View {
         .padding(.horizontal, 12)
         .padding(.vertical, 6)
     }
+
+    /// Pluralised with a real plural rule rather than string concatenation, so a
+    /// language with more than two forms is not baked into the call site.
+    private var clipCountLabel: String {
+        String(
+            format: String(localized: "panel.clipCount.one"),
+            store.history.count
+        )
+    }
 }
 
 // MARK: - Rows
 
+/// The sensitive kinds found in an entry, as a tooltip.
+private func redactionTooltip(_ snapshot: ClipSnapshot) -> String {
+    let kinds = Set(snapshot.items.flatMap(\.maskedKinds))
+    guard !kinds.isEmpty else { return "" }
+    return kinds.map(\.label).sorted().joined(separator: "\n")
+}
+
 private struct ClipRow: View {
     @Environment(ClipboardStore.self) private var store
+    @Environment(AppSettings.self) private var settings
     let snapshot: ClipSnapshot
 
     var body: some View {
@@ -136,9 +180,23 @@ private struct ClipRow: View {
                 Text(snapshot.preview.isEmpty ? snapshot.kind.displayName : snapshot.preview)
                     .lineLimit(2)
                     .font(.system(size: 12))
-                Text("\(snapshot.kind.displayName) · \(snapshot.byteLength.formattedBytes)")
-                    .font(.caption2)
-                    .foregroundStyle(.tertiary)
+                HStack(spacing: 5) {
+                    Text("\(snapshot.kind.displayName) · \(snapshot.byteLength.formattedBytes)")
+                    // Say when values were hidden, so a masked entry is not
+                    // mistaken for the original content.
+                    if snapshot.isRedacted {
+                        Text("·")
+                        Label(
+                            String(localized: "row.redacted.badge"),
+                            systemImage: "eye.slash"
+                        )
+                        .labelStyle(.titleAndIcon)
+                        .foregroundStyle(.orange)
+                        .help(redactionTooltip(snapshot))
+                    }
+                }
+                .font(.caption2)
+                .foregroundStyle(.tertiary)
             }
 
             Spacer(minLength: 0)
@@ -148,12 +206,33 @@ private struct ClipRow: View {
         .contentShape(Rectangle())
         .onTapGesture(count: 2) { store.restore(snapshot) }
         .contextMenu {
-            Button("Paste") { store.restore(snapshot) }
-            Button("Paste as Plain Text") { store.restoreAsPlainText(snapshot) }
+            Button(String(localized: "row.paste")) { store.restore(snapshot) }
+            Button(String(localized: "row.pastePlain")) { store.restoreAsPlainText(snapshot) }
+
+            // Only offered when it can actually work: an action that silently does
+            // nothing is worse than no action at all.
+            if settings.securePaste, store.accessibilityPermission().isGranted,
+               let text = snapshot.items.first?.plainText, !text.isEmpty {
+                Button(String(localized: "row.pasteSecure")) {
+                    store.pasteWithoutClipboard(text)
+                }
+            }
+
+            if let firstPath = snapshot.items.first?.filePaths.first {
+                Divider()
+                Button(String(localized: "row.reveal")) {
+                    NSWorkspace.shared.activateFileViewerSelecting([
+                        URL(fileURLWithPath: firstPath)
+                    ])
+                }
+            }
+
             Divider()
-            Button("Forget", role: .destructive) { store.forget(snapshot) }
+            Button(String(localized: "row.forget"), role: .destructive) {
+                store.forget(snapshot)
+            }
         }
-        .help("Double-click to put this back on the clipboard")
+        .help(String(localized: "row.hint.doubleClick"))
     }
 }
 
@@ -168,18 +247,33 @@ private struct AccessBanner: View {
             Image(systemName: "exclamationmark.triangle.fill")
                 .foregroundStyle(.orange)
             VStack(alignment: .leading, spacing: 4) {
-                Text(error.errorDescription ?? "Clipboard unavailable")
+                Text(title)
                     .font(.caption)
                 if store.accessBehavior.isDenied {
-                    Text("Current policy: never allow.")
+                    Text(String(localized: "error.accessDenied.policy"))
                         .font(.caption2)
                         .foregroundStyle(.secondary)
+                }
+                if case .accessDenied = error {
+                    Button(String(localized: "error.openSettings")) {
+                        _ = maccv_secure_input_open_settings()
+                    }
+                    .controlSize(.small)
                 }
             }
             Spacer()
         }
         .padding(10)
         .background(.orange.opacity(0.12))
+    }
+
+    /// The engine's own description, with the denial case given a fuller
+    /// explanation than a one-liner can carry.
+    private var title: String {
+        if case .accessDenied = error {
+            return String(localized: "error.accessDenied.body")
+        }
+        return error.errorDescription ?? String(localized: "error.accessDenied.title")
     }
 }
 
@@ -189,9 +283,9 @@ private struct EmptyState: View {
             Image(systemName: "clipboard")
                 .font(.system(size: 32))
                 .foregroundStyle(.tertiary)
-            Text("Nothing copied yet")
+            Text(String(localized: "empty.title"))
                 .font(.callout)
-            Text("Copy something and it will appear here.")
+            Text(String(localized: "empty.subtitle"))
                 .font(.caption)
                 .foregroundStyle(.secondary)
         }
