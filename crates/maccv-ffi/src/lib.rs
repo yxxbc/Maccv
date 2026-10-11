@@ -26,7 +26,7 @@
 //!
 //! Release builds use `panic = "abort"`, so a bug can never unwind across the FFI
 //! boundary into Swift. Every function additionally validates its pointers before
-//! dereferencing and reports [`MaccvError::MaccvErrorNullPointer`] instead of
+//! dereferencing and reports [`MaccvError::NullPointer`] instead of
 //! trapping.
 
 #![deny(missing_docs)]
