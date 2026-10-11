@@ -16,21 +16,29 @@ root = pathlib.Path(__file__).resolve().parents[2]
 en = (root / "README.md").read_text(encoding="utf-8")
 zh = (root / "README.zh-CN.md").read_text(encoding="utf-8")
 
-# (label, needle in English, needle in Chinese). Numbers are identical in both by
-# construction; the prose around them is not.
+# (label, [acceptable English phrasings], [acceptable Chinese phrasings]).
+#
+# Lists rather than single strings: the check exists to catch a claim going *missing* in one
+# language, not to freeze its wording. Pinning one exact sentence means every honest
+# rewrite fails the build, which trains people to edit the check instead of the README.
 SHARED_FACTS = [
-    ("macOS minimum", "macOS 15", "macOS 15"),
-    ("change detection", "0.53 µs", "0.53 µs"),
-    ("read latency", "9.9 µs", "9.9 µs"),
-    ("bundle size", "1.9 MB", "1.9 MB"),
-    ("engine linkage", "static", "静态库"),
-    ("licence", "Apache-2.0", "Apache-2.0"),
-    ("objc2", "objc2", "objc2"),
-    ("the honest limit", "any application on your Mac can read", "任何应用都能读取"),
-    ("secure paste", "Paste Without Clipboard", "不经过剪贴板粘贴"),
-    ("no AI", "No AI ever reads", "AI 永不读取"),
-    ("no disk history", "never written to disk", "从不写入磁盘"),
-    ("no telemetry", "no telemetry", "没有遥测"),
+    ("macOS minimum", ["macOS 15"], ["macOS 15"]),
+    ("change detection", ["0.53 µs"], ["0.53 µs"]),
+    ("read latency", ["9.9 µs"], ["9.9 µs"]),
+    ("bundle size", ["1.9 MB"], ["1.9 MB"]),
+    ("engine linkage", ["static library"], ["静态库"]),
+    ("licence", ["Apache-2.0"], ["Apache-2.0"]),
+    ("objc2", ["objc2"], ["objc2"]),
+    (
+        "the honest limit",
+        ["world-readable", "any application on your Mac can read"],
+        ["全局可读", "任何应用都能读取"],
+    ),
+    ("it cannot stop other apps", ["cannot stop another app"], ["无法阻止其他应用"]),
+    ("secure paste", ["Paste Without Clipboard"], ["不经过剪贴板粘贴"]),
+    ("no AI", ["No AI ever reads", "No model, local or cloud"], ["AI 永不读取", "没有本地模型"]),
+    ("no disk history", ["never written to disk"], ["从不写入磁盘"]),
+    ("no telemetry", ["No telemetry", "no telemetry"], ["没有遥测"]),
     ("cross-link", "README.zh-CN.md", "README.md"),
     ("website", "yxxbc.github.io", "yxxbc.github.io"),
     ("security doc", "docs/SECURITY.md", "docs/SECURITY.md"),
@@ -41,11 +49,11 @@ SHARED_FACTS = [
 ]
 
 problems: list[str] = []
-for label, en_needle, zh_needle in SHARED_FACTS:
-    if en_needle not in en:
-        problems.append(f"English README is missing: {label} ('{en_needle}')")
-    if zh_needle not in zh:
-        problems.append(f"Chinese README is missing: {label} ('{zh_needle}')")
+for label, english_forms, chinese_forms in SHARED_FACTS:
+    if not any(form in en for form in english_forms):
+        problems.append(f"English README is missing: {label} (any of {english_forms})")
+    if not any(form in zh for form in chinese_forms):
+        problems.append(f"Chinese README is missing: {label} (any of {chinese_forms})")
 
 # The badge block must be centred in both, or one renders left-aligned.
 for name, text in (("README.md", en), ("README.zh-CN.md", zh)):

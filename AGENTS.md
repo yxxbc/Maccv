@@ -220,7 +220,7 @@ engine rejects means every installed copy silently stops updating.
 
 | Also needed | Why |
 |---|---|
-| The other README | `readme_parity.py` checks shared facts: the numbers, the limitation statement, doc links, the centred badge block, and equal section counts. Prose may differ; **facts may not**. |
+| The other README | `readme_parity.py` checks shared facts: the numbers, the limitation statement, the doc links, the centred badge block, and equal section counts. Prose may differ; **facts may not**. Where a claim can be honestly reworded, add the alternative to the list rather than pinning one sentence — a check that fails on a rewrite trains people to edit the check. |
 | `docs/PERFORMANCE.md` | If you change a published number, the asserting test and the document both. |
 
 ### 3.10 Changing the brand or preview images
