@@ -8,7 +8,7 @@
 > **The one command that answers "did I break something":**
 >
 > ```bash
-> Scripts/verify.sh          # 23 stages, ~3 min, same command CI runs
+> Scripts/verify.sh          # 24 stages, ~3 min, same command CI runs
 > ```
 
 ---
@@ -242,7 +242,7 @@ rsvg-convert -w 1024 -h 1024 assets/logo.svg -o assets/logo.png
 ## 4. Build, test, verify
 
 ```bash
-Scripts/verify.sh                # everything: 23 stages, ~3 min
+Scripts/verify.sh                # everything: 24 stages, ~3 min
 Scripts/verify.sh --quick        # skip the app build (Rust + checks only)
 Scripts/verify.sh --no-network   # skip the one check that reaches out
 
@@ -281,7 +281,8 @@ These are enforced by `Scripts/checks/`. Read them before arguing with them.
 | **Performance claims are asserted** | `PERFORMANCE.md` + tests | A published number has a test that fails if it regresses. |
 | **The two languages agree** | `i18n.py`, `readme_parity.py`, `website.py` | On keys, facts and structure — not prose. |
 | **This guide stays true** | `agents_doc.py` | Every path, script and stage count in `AGENTS.md` resolves. |
-| **Workflows pass what scripts read** | `workflow_env.py` | The env names a workflow sets match what its script requires. A `ARM_URL`/`ARM64_URL` mismatch once shipped a release that never wrote its update feed. |
+| **Workflows pass what scripts read** | `workflow_env.py` | The env names a workflow sets match what its script requires. An `ARM_URL`/`ARM64_URL` mismatch once shipped a release that never wrote its update feed. |
+| **Build inputs are committed** | `tracked_files.py` | No file the build reads is excluded by `.gitignore`. An ignored `Info.plist` built locally and failed in a fresh clone. |
 
 ### Two rules when adding a check
 

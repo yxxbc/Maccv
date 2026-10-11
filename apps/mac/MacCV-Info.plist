@@ -1,0 +1,90 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<!--
+  MacCV's Info.plist.
+
+  Committed rather than generated from project.yml, for one specific reason:
+  xcodegen's `info:` shorthand *replaces* the target's plist configuration instead of
+  merging with it, so using it silently discarded INFOPLIST_FILE and every key. The
+  first release shipped without an app icon because CFBundleIconFile was among the
+  keys that vanished, and nothing failed — the app just had the generic blank icon.
+
+  A committed file cannot lose keys that way: what is here is what ships.
+
+  Version numbers use build-setting substitution, so `Scripts/bump-version.sh` only
+  has to update MARKETING_VERSION and CURRENT_PROJECT_VERSION in project.yml.
+
+  Keys are listed with a one-line reason where the reason is not obvious.
+-->
+<plist version="1.0">
+<dict>
+	<key>CFBundleDevelopmentRegion</key>
+	<string>en</string>
+
+	<key>CFBundleDisplayName</key>
+	<string>MacCV</string>
+
+	<key>CFBundleExecutable</key>
+	<string>$(EXECUTABLE_NAME)</string>
+
+	<!-- Which icon macOS shows in the Dock, Finder and the app switcher. Without
+	     this the bundle has an icon file nobody references, and the system falls
+	     back to the generic blank document icon. -->
+	<key>CFBundleIconFile</key>
+	<string>AppIcon</string>
+
+	<key>CFBundleIdentifier</key>
+	<string>$(PRODUCT_BUNDLE_IDENTIFIER)</string>
+
+	<key>CFBundleInfoDictionaryVersion</key>
+	<string>6.0</string>
+
+	<key>CFBundleName</key>
+	<string>$(PRODUCT_NAME)</string>
+
+	<key>CFBundlePackageType</key>
+	<string>APPL</string>
+
+	<key>CFBundleShortVersionString</key>
+	<string>$(MARKETING_VERSION)</string>
+
+	<!-- The build number. It must increase for an in-place replacement to be treated
+	     as newer, which is why bump-version.sh rolls it. -->
+	<key>CFBundleVersion</key>
+	<string>$(CURRENT_PROJECT_VERSION)</string>
+
+	<!-- The app reads the pasteboard, so the deployment target is what actually
+	     decides whether it launches; this is the same statement, for the store and
+	     for anything that inspects the bundle. -->
+	<key>LSMinimumSystemVersion</key>
+	<string>$(MACOSX_DEPLOYMENT_TARGET)</string>
+
+	<!-- A clipboard manager is a menu-bar accessory: no Dock icon, no main window,
+	     no app switcher entry. -->
+	<key>LSUIElement</key>
+	<true/>
+
+	<key>NSPrincipalClass</key>
+	<string>NSApplication</string>
+
+	<key>NSHumanReadableCopyright</key>
+	<string>Copyright © 2026 yxxbc. Licensed under the Apache License, Version 2.0.</string>
+
+	<!-- macOS shows its own consent prompt the first time an app reads the general
+	     pasteboard. This string is what explains why MacCV is asking, so it says what
+	     the access is for and what does not happen to the data. -->
+	<key>NSPasteboardUsageDescription</key>
+	<string>MacCV reads your clipboard so it can keep the history you asked for. Nothing leaves your Mac.</string>
+
+	<!-- MacCV is a normal app, not a background-only one; it just has no Dock icon. -->
+	<key>NSSupportsAutomaticTermination</key>
+	<false/>
+	<key>NSSupportsSuddenTermination</key>
+	<false/>
+
+	<!-- Declared so the About panel and the update check can agree on which version
+	     is running, and so a future Sparkle-style feed has something to key on. -->
+	<key>SUFeedURL</key>
+	<string>https://yxxbc.github.io/Maccv/latest.json</string>
+</dict>
+</plist>

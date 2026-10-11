@@ -162,6 +162,11 @@ stage "READMEs agree on the facts" \
 stage "AGENTS.md matches the repository" \
   python3 Scripts/checks/agents_doc.py
 
+# A file the build needs but which .gitignore excludes works locally and fails in a
+# fresh clone. That has already happened once, with the Info.plist.
+stage "build inputs are committed" \
+  python3 Scripts/checks/tracked_files.py
+
 stage "release signing is either configured or documented" \
   bash -c '
     set -e

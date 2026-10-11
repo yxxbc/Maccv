@@ -8,8 +8,13 @@
 
 # The project is generated from apps/mac/project.yml; never commit it.
 apps/mac/MacCV.xcodeproj/
-# Info.plist is generated from project.yml's `info.properties`.
-apps/mac/MacCV-Info.plist
+# NOTE: apps/mac/MacCV-Info.plist is intentionally NOT ignored.
+#
+# It used to be generated from project.yml via xcodegen's `info:` shorthand, which
+# *replaces* the target's plist configuration instead of merging with it. That silently
+# discarded CFBundleIconFile, so the first release shipped with no app icon and nothing
+# failed. It is now a committed source file with INFOPLIST_FILE pointing at it, and
+# version values use $(MARKETING_VERSION) substitution.
 *.xcworkspace/
 xcuserdata/
 *.xcuserstate
