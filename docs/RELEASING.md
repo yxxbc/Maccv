@@ -283,6 +283,52 @@ With them absent the release still publishes, ad-hoc signed, and the README keep
 telling users to expect the prompt. Adding them later is a repository secret, not a
 code change.
 
+## First-time repository setup
+
+Three settings are not code and are easy to forget, because their absence produces a
+failure that looks like something else.
+
+### Pages must be enabled with "GitHub Actions" as the source
+
+```bash
+gh api --method POST repos/yxxbc/Maccv/pages -f build_type=workflow
+```
+
+Without it the deploy fails with an opaque `Get Pages site failed` from
+`actions/configure-pages`. The workflow now checks for this and prints the command
+rather than letting the API error speak for itself.
+
+### The `github-pages` environment must permit tag deployments
+
+The default policy allows only the repository's default branch. A release-triggered
+deploy carries a **tag** context, so it is rejected with:
+
+```
+Tag "v0.1.1" is not allowed to deploy to github-pages due to environment protection rules.
+```
+
+The release publishes successfully and only the site update fails, which is easy to
+miss. Allow the tag prefix once:
+
+```bash
+gh api --method POST repos/yxxbc/Maccv/environments/github-pages/deployment-branch-policies \
+  -f name='v*' -f type=tag
+```
+
+Allowing tags rather than pointing the workflow at `main` is deliberate: the site
+should be updated from the commit the release was built from, not from whatever
+`main` happens to contain.
+
+### Verify the feed after the first release
+
+```bash
+curl -sS https://yxxbc.github.io/Maccv/latest.json | python3 -m json.tool
+```
+
+Both architectures must be listed, with matching digests. The engine refuses a feed it
+cannot verify, so a feed that is merely *reachable* is not enough — `Scripts/verify.sh`
+asserts the live one is usable.
+
 ## Rollback
 
 There is no "unpublish". Once a version is on the feed, users have it.

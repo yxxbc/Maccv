@@ -278,18 +278,31 @@ if [[ "$QUICK" == "0" ]]; then
   fi
 
   if [[ "$ALLOW_NETWORK" == "1" ]]; then
-    stage "update feed is reachable" \
+    stage "update feed is reachable and valid" \
       bash -c '
         set -e
         url="https://yxxbc.github.io/Maccv/latest.json"
-        code=$(curl -sS -m 20 -o /dev/null -w "%{http_code}" "$url" || echo 000)
-        # 404 before the first release is expected, not a failure.
-        if [ "$code" = "200" ] || [ "$code" = "404" ]; then
-          echo "$url -> $code"
-        else
-          echo "$url -> $code"
-          exit 1
+        body="$(curl -sS -m 20 "$url" || true)"
+
+        if [ -z "$body" ]; then
+          echo "$url returned nothing (404 before the first release is normal)"
+          exit 0
         fi
+
+        # Reachable is not the same as usable: the engine refuses a manifest it cannot
+        # verify, so a reachable feed with a bad digest would still break every install.
+        printf %s "$body" | python3 -c "
+import json, sys
+f = json.load(sys.stdin)
+for key in (\"version\", \"latest-mac.yml\".replace(\"latest-mac.yml\", \"sha256\")):
+    assert f.get(key), f\"missing {key}\"
+d = f[\"sha256\"]
+assert len(d) == 64 and all(c in \"0123456789abcdef\" for c in d), \"bad sha256\"
+assert f[\"download_url\"].startswith(\"https://\"), \"non-HTTPS download_url\"
+archs = {x[\"arch\"] for x in f.get(\"downloads\", [])}
+assert archs == {\"arm64\", \"x86_64\"}, f\"unexpected architectures: {archs}\"
+print(f\"live feed: {f[\"version\"]}, {sorted(archs)}\")
+"
       '
   fi
 else

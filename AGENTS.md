@@ -460,6 +460,11 @@ git tag -a v0.2.0 -m 'MacCV 0.2.0' && git push origin v0.2.0
 - **Emergency:** add the bad version to the feed's `revoked` array. It accumulates, so
   it never needs re-adding. A revoked build shows a window with no close button; it
   does not kill the process and does not update silently.
+- **Two repository settings are not code** and their absence produces misleading
+  failures — Pages enabled with `build_type=workflow`, and the `github-pages`
+  environment permitting tag deployments. Both are in `docs/RELEASING.md`
+  § "First-time repository setup". A release publishes fine while the site update
+  fails, so check the whole run, not just the release job.
 
 ---
 
